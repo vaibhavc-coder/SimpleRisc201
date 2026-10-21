@@ -136,8 +136,8 @@ AssemblyResult Assembler::assemble(const std::string& raw_source) {
         int32_t imm = 0;
 
         // Group 1: No arguments
-        if (mnem == "NOP" || mnem == "RET") {
-            machine_word = (static_cast<word_t>(op) << 27);
+        if (mnem == "NOP" || mnem == "RET" || mnem == "HALT") {
+            machine_word = (static_cast<word_t>((mnem == "HALT") ? OP_NOP : op) << 27);
         } 
         // Group 2: Branches
         // call .loop this is the instruction we need to decode it so call will first be found

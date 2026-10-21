@@ -1,8 +1,10 @@
 #include <iostream>
 #include <iomanip>
+#include <cassert>
 #include "types.hpp"
 #include "alu.hpp"
 #include "control_unit.hpp"
+#include "cpu_pipeline.hpp"
 #include "assembler.hpp"
 
 using namespace simplerisc;
@@ -85,17 +87,128 @@ void testAssemblerAndControlUnit(const std::string& source_code) {
               << (static_cast<double>(total_micro_cycles) / res.machine_words.size()) << "\n";
 }
 
+void testPipelinedProcessor() {
+    std::cout << "\n=======================================================\n";
+    std::cout << " 4. TESTING 4-STAGE PIPELINE (IF -> ID/RR -> EX -> MEM/WB)\n";
+    std::cout << "    Features: EX/MEM & MEM/WB Data Forwarding, Stalls, Flushes\n";
+    std::cout << "=======================================================\n";
+
+    // Test program designed specifically to trigger:
+    // 1. Consecutive RAW data hazards (EX->EX and MEM->EX forwarding)
+    // 2. Load-Use hazard (stalling 1 cycle)
+    // 3. Taken branch (flushing preceding pipeline stages)
+    std::string pipe_code =
+        "mov r1, 15\n"
+        "mov r2, 25\n"
+        "add r3, r1, r2\n"       // RAW Hazard: r3 depends on r1 and r2 (forwarded)
+        "sub r4, r3, r1\n"       // RAW Hazard: r4 depends on forwarded r3
+        "add r5, r4, 10\n"       // RAW Hazard: r5 depends on forwarded r4
+        "st r5, 100(r0)\n"       // Store r5 (35) to address 100
+        "ld r6, 100(r0)\n"       // Load memory[100] into r6
+        "add r7, r6, 5\n"        // Load-Use Hazard! Must stall 1 cycle! r7 = 40
+        "cmp r7, 40\n"
+        "beq branch_target\n"    // Taken branch! Flushes pipeline
+        "mov r8, 999\n"          // Flushed! Must not execute
+        "branch_target:\n"
+        "add r9, r7, 10\n"       // r9 = 50
+        "nop\n";
+
+    Assembler asm_tool;
+    AssemblyResult res = asm_tool.assemble(pipe_code);
+    assert(res.success);
+
+    // 4-Stage Pipeline Run
+    CPUPipeline pipe4(PipelineMode::FOUR_STAGE);
+    pipe4.loadProgram(res.machine_words, 0);
+
+    std::cout << "Running 4-Stage Pipelined Datapath with Telemetry...\n";
+    pipe4.run(100);
+
+    std::cout << pipe4.dump4StageState();
+    std::cout << pipe4.dumpRegisters();
+    std::cout << pipe4.getMetrics().dump();
+
+    // Verify correct execution under pipeline hazards
+    assert(pipe4.getRegister(1) == 15);
+    assert(pipe4.getRegister(2) == 25);
+    assert(pipe4.getRegister(3) == 40);
+    assert(pipe4.getRegister(4) == 25);
+    assert(pipe4.getRegister(5) == 35);
+    assert(pipe4.getRegister(6) == 35);
+    assert(pipe4.getRegister(7) == 40);
+    assert(pipe4.getRegister(8) == 0); // Flushed! Remained 0
+    assert(pipe4.getRegister(9) == 50);
+    assert(pipe4.getMetrics().forwarding_events > 0);
+    assert(pipe4.getMetrics().stall_cycles > 0);
+    assert(pipe4.getMetrics().branch_flushes > 0);
+    std::cout << "[PASS] 4-Stage Pipeline Forwarding, Load-Use Stall & Flush Verified!\n";
+
+    // 6-Stage Super-Pipeline Run
+    std::cout << "\n=======================================================\n";
+    std::cout << " 5. TESTING 6-STAGE SUPER-PIPELINE (IF1->IF2->ID->RR->EX->WB)\n";
+    std::cout << "=======================================================\n";
+
+    CPUPipeline pipe6(PipelineMode::SIX_STAGE);
+    pipe6.loadProgram(res.machine_words, 0);
+    pipe6.run(100);
+
+    std::cout << pipe6.dump6StageState();
+    std::cout << pipe6.dumpRegisters();
+    std::cout << pipe6.getMetrics().dump();
+
+    assert(pipe6.getRegister(7) == 40);
+    assert(pipe6.getRegister(8) == 0); // Flushed
+    assert(pipe6.getRegister(9) == 50);
+    std::cout << "[PASS] 6-Stage Super-Pipeline Execution Verified!\n";
+
+    // Comparative Performance Table
+    std::cout << "\n===============================================================================\n";
+    std::cout << " 6. ARCHITECTURAL COMPARATIVE EVALUATION (Microprogrammed vs 4-Stage vs 6-Stage)\n";
+    std::cout << "===============================================================================\n";
+
+    // Microprogrammed Baseline Run
+    ControlUnit cu;
+    cu.loadProgram(res.machine_words, 0);
+    uint32_t cu_cycles = 0;
+    for (size_t i = 0; i < res.machine_words.size(); ++i) {
+        cu_cycles += cu.stepInstruction();
+    }
+    double cu_cpi = static_cast<double>(cu_cycles) / res.machine_words.size();
+
+    std::cout << std::dec << std::setfill(' ');
+    std::cout << "+-----------------------+---------------+---------------+---------------+---------------+\n";
+    std::cout << "| Architecture Model    | Clock Cycles  | Retired Inst  | CPI           | Speedup vs CU |\n";
+    std::cout << "+-----------------------+---------------+---------------+---------------+---------------+\n";
+    std::cout << "| Microprogrammed (CU)  | " << std::setw(13) << cu_cycles
+              << " | " << std::setw(13) << res.machine_words.size()
+              << " | " << std::fixed << std::setprecision(2) << std::setw(13) << cu_cpi
+              << " | " << std::setw(13) << "1.00x" << " |\n";
+
+    double speedup4 = cu_cpi / pipe4.getMetrics().getCPI();
+    std::cout << "| 4-Stage Pipeline      | " << std::setw(13) << pipe4.getMetrics().total_cycles
+              << " | " << std::setw(13) << pipe4.getMetrics().instructions_retired
+              << " | " << std::fixed << std::setprecision(2) << std::setw(13) << pipe4.getMetrics().getCPI()
+              << " | " << std::fixed << std::setprecision(2) << std::setw(12) << speedup4 << "x |\n";
+
+    double speedup6 = cu_cpi / pipe6.getMetrics().getCPI();
+    std::cout << "| 6-Stage Super-Pipeline| " << std::setw(13) << pipe6.getMetrics().total_cycles
+              << " | " << std::setw(13) << pipe6.getMetrics().instructions_retired
+              << " | " << std::fixed << std::setprecision(2) << std::setw(13) << pipe6.getMetrics().getCPI()
+              << " | " << std::fixed << std::setprecision(2) << std::setw(12) << speedup6 << "x |\n";
+    std::cout << "+-----------------------+---------------+---------------+---------------+---------------+\n";
+}
+
 int main(int argc, char* argv[]) {
     std::cout << "=======================================================\n";
-    std::cout << " SimpleRISC Evaluation 1 Submission Demo\n";
-    std::cout << " Components: ISA Types | 32-Bit ALU | Assembler | Micro-CU\n";
+    std::cout << " SimpleRISC Integrated Processor Simulation Suite\n";
+    std::cout << " Features: ALU | Assembler | Micro-CU | 4-Stage & 6-Stage Pipelines\n";
     std::cout << " Reference: Smruti R. Sarangi (Basic Computer Architecture)\n";
     std::cout << "=======================================================\n";
 
-    // 1. Test ALU
+    // 1. ALU Test
     testALU();
 
-    // 2. Sample Assembly Program
+    // 2. Assembler & Micro-CU Test
     std::string sample_program =
         "mov r0, 5\n"
         "mov r1, 10\n"
@@ -111,17 +224,26 @@ int main(int argc, char* argv[]) {
         "finish:\n"
         "nop\n";
 
-    // If a file was passed as argument, load that instead
+    testAssemblerAndControlUnit(sample_program);
+
+    // 3. 4-Stage & 6-Stage Pipeline with Forwarding and Stalls
+    testPipelinedProcessor();
+
+    // If an external source file was passed, run it through the 4-stage pipeline
     if (argc >= 2) {
         Assembler a;
         AssemblyResult r = a.assembleFile(argv[1]);
         if (r.success) {
-            std::cout << "\nLoaded source file: " << argv[1] << "\n";
-            testAssemblerAndControlUnit(sample_program);
-            return 0;
+            std::cout << "\n=======================================================\n";
+            std::cout << " Running File on 4-Stage Pipeline: " << argv[1] << "\n";
+            std::cout << "=======================================================\n";
+            CPUPipeline file_pipe(PipelineMode::FOUR_STAGE);
+            file_pipe.loadProgram(r.machine_words, 0);
+            file_pipe.run(50000);
+            std::cout << file_pipe.dumpRegisters();
+            std::cout << file_pipe.getMetrics().dump();
         }
     }
 
-    testAssemblerAndControlUnit(sample_program);
     return 0;
 }

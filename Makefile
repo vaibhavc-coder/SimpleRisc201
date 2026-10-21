@@ -3,10 +3,11 @@ CXXFLAGS ?= -std=c++14 -Wall -Wextra -O2 -I include
 
 SRCS = src/alu.cpp \
        src/control_unit.cpp \
+       src/cpu_pipeline.cpp \
        src/assembler.cpp \
        src/main.cpp
 
-BIN = eval1_demo.exe
+BIN = simplerisc_sim.exe
 
 all: $(BIN)
 

@@ -234,7 +234,59 @@ struct Instruction {
         inst.valid = (op_val <= OP_RET);
         return inst;
     }
+
+    bool writesRd() const {
+        if (!valid) return false;
+        if (opcode == OP_CMP) return false;
+        if (opcode == OP_ST) return false;
+        if (opcode == OP_NOP || opcode == OP_RET || opcode == OP_BEQ || opcode == OP_BGT || opcode == OP_B) return false;
+        return true;
+    }
+
+    bool readsRs1() const {
+        if (!valid) return false;
+        if (opcode == OP_NOP || opcode == OP_RET || opcode == OP_BEQ || opcode == OP_BGT || opcode == OP_B || opcode == OP_CALL) return false;
+        if (opcode == OP_MOV || opcode == OP_NOT) return false;
+        return true;
+    }
+
+    bool readsRs2() const {
+        if (!valid) return false;
+        if (I) return false;
+        if (format == InstFormat::BRANCH) return false;
+        if (opcode == OP_NOP || opcode == OP_RET || opcode == OP_LD) return false;
+        if (opcode == OP_ST) return false;
+        return true;
+    }
+
+    bool readsStoreRd() const {
+        return valid && (opcode == OP_ST);
+    }
+
+    bool isLoad() const {
+        return valid && (opcode == OP_LD);
+    }
+
+    bool isStore() const {
+        return valid && (opcode == OP_ST);
+    }
+
+    bool isBranch() const {
+        return valid && (opcode == OP_BEQ || opcode == OP_BGT || opcode == OP_B || opcode == OP_CALL || opcode == OP_RET);
+    }
 };
+
+inline std::string toHex8(word_t val) {
+    char buf[16];
+    std::snprintf(buf, sizeof(buf), "0x%08X", val);
+    return std::string(buf);
+}
+
+inline std::string regName(reg_t r) {
+    if (r == 14) return "r14 (sp)";
+    if (r == 15) return "r15 (ra)";
+    return "r" + std::to_string(r);
+}
 
 } // namespace simplerisc
 
