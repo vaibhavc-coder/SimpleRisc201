@@ -1,0 +1,10 @@
+{
+  "C_Cpp.default.includePath": [
+    "${workspaceFolder}/include"
+  ],
+  "C_Cpp.default.cppStandard": "c++14",
+  "files.associations": {
+    "*.hpp": "cpp",
+    "*.s": "arm"
+  }
+}

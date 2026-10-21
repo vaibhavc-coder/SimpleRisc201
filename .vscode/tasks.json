@@ -1,0 +1,40 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "type": "shell",
+      "label": "Build SimpleRISC Simulator",
+      "command": "g++",
+      "args": [
+        "-std=c++14",
+        "-O2",
+        "-I",
+        "include",
+        "src/alu.cpp",
+        "src/control_unit.cpp",
+        "src/assembler.cpp",
+        "src/main.cpp",
+        "-o",
+        "${workspaceFolder}/eval1_demo.exe"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": ["$gcc"],
+      "detail": "Compiles ALU, Assembler, and Control Unit into eval1_demo.exe"
+    },
+    {
+      "type": "shell",
+      "label": "Run Simulator Demo",
+      "command": "./eval1_demo.exe",
+      "dependsOn": "Build SimpleRISC Simulator",
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      },
+      "problemMatcher": [],
+      "detail": "Builds and executes the SimpleRISC demo"
+    }
+  ]
+}

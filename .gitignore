@@ -1,0 +1,30 @@
+# Binaries and executables
+*.exe
+*.out
+*.app
+*.o
+*.obj
+
+# Debug and symbol files
+*.pdb
+*.ilk
+
+# Build directories
+build/
+bin/
+obj/
+
+# Editor / IDE settings (optional personal overrides)
+.vscode/*
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/settings.json
+.vs/
+.idea/
+*.swp
+*~
+
+# OS generated files
+.DS_Store
+Thumbs.db
+desktop.ini
