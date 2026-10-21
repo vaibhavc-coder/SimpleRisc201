@@ -3,8 +3,14 @@ CXXFLAGS ?= -std=c++14 -Wall -Wextra -O2 -I include
 
 SRCS = src/alu.cpp \
        src/control_unit.cpp \
+       src/horizontal_control_unit.cpp \
        src/cpu_pipeline.cpp \
        src/assembler.cpp \
+       src/disassembler.cpp \
+       src/stack_preprocessor.cpp \
+       src/exception_framework.cpp \
+       src/stack_visualizer.cpp \
+       src/debugger_cli.cpp \
        src/main.cpp
 
 BIN = simplerisc_sim.exe
@@ -20,4 +26,7 @@ clean:
 run: $(BIN)
 	./$(BIN)
 
-.PHONY: all clean run
+cli: $(BIN)
+	./$(BIN) --cli
+
+.PHONY: all clean run cli

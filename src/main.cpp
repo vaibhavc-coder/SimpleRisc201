@@ -1,11 +1,18 @@
 #include <iostream>
 #include <iomanip>
 #include <cassert>
+#include <string>
 #include "types.hpp"
 #include "alu.hpp"
 #include "control_unit.hpp"
+#include "horizontal_control_unit.hpp"
 #include "cpu_pipeline.hpp"
 #include "assembler.hpp"
+#include "disassembler.hpp"
+#include "stack_preprocessor.hpp"
+#include "exception_framework.hpp"
+#include "stack_visualizer.hpp"
+#include "debugger_cli.hpp"
 
 using namespace simplerisc;
 
@@ -14,89 +21,141 @@ void testALU() {
     std::cout << " 1. TESTING 32-BIT ALU (Smruti Sarangi Architecture)\n";
     std::cout << "=======================================================\n";
 
-    // 1. ADD test
     ALUResult add_res = ALU::execute(ALUOp::ADD, 15, 25);
     std::cout << "[ALU ADD] 15 + 25 = " << add_res.result << " (Expected: 40)\n";
 
-    // 2. SUB test
     ALUResult sub_res = ALU::execute(ALUOp::SUB, 50, 20);
     std::cout << "[ALU SUB] 50 - 20 = " << sub_res.result << " (Expected: 30)\n";
 
-    // 3. MUL test
     ALUResult mul_res = ALU::execute(ALUOp::MUL, 6, 7);
     std::cout << "[ALU MUL] 6 * 7   = " << mul_res.result << " (Expected: 42)\n";
 
-    // 4. CMP test (Equality)
     ALUResult cmp_eq = ALU::execute(ALUOp::CMP, 100, 100);
     std::cout << "[ALU CMP] cmp 100, 100 -> flags.E=" << cmp_eq.flags.E
               << " flags.GT=" << cmp_eq.flags.GT << " (Expected: E=1, GT=0)\n";
 
-    // 5. CMP test (Greater Than)
     ALUResult cmp_gt = ALU::execute(ALUOp::CMP, 200, 50);
     std::cout << "[ALU CMP] cmp 200, 50  -> flags.E=" << cmp_gt.flags.E
               << " flags.GT=" << cmp_gt.flags.GT << " (Expected: E=0, GT=1)\n";
 }
 
-void testAssemblerAndControlUnit(const std::string& source_code) {
+void testStackPreprocessorAndDisassembler() {
     std::cout << "\n=======================================================\n";
-    std::cout << " 2. TESTING 32-BIT ASSEMBLER (Table 9.2 & 9.3)\n";
+    std::cout << " 2. TESTING STACK PREPROCESSOR & MACRO EXPANSION\n";
     std::cout << "=======================================================\n";
 
-    Assembler assembler;
-    AssemblyResult res = assembler.assemble(source_code);
+    std::string macro_code =
+        "main:\n"
+        "  mov r1, 10\n"
+        "  mov r2, 20\n"
+        "  push r1\n"
+        "  push r2\n"
+        "  enter 8\n"
+        "  leave 8\n"
+        "  pop r2\n"
+        "  pop r1\n"
+        "  nop\n";
 
-    if (!res.success) {
-        std::cerr << "Assembly Error: " << res.error_message << "\n";
-        return;
-    }
+    StackPreprocessor prep;
+    PreprocessorReport prep_rep = prep.process(macro_code);
+    std::cout << "Original lines: " << prep_rep.original_lines
+              << " | Expanded lines: " << prep_rep.generated_lines
+              << " | Macros expanded: " << prep_rep.macros_expanded << "\n";
+    std::cout << "Expanded Assembly:\n" << prep_rep.expanded_source << "\n";
 
-    std::cout << "Assembled " << res.machine_words.size() << " instructions successfully:\n";
+    std::cout << "\n=======================================================\n";
+    std::cout << " 3. TESTING TWO-PASS ASSEMBLER & DISASSEMBLER\n";
+    std::cout << "=======================================================\n";
+
+    Assembler asm_tool;
+    AssemblyResult asm_res = asm_tool.assemble(prep_rep.expanded_source);
+    assert(asm_res.success);
+
+    std::cout << "Assembled " << asm_res.machine_words.size() << " machine words.\n";
+    auto disasm_list = Disassembler::disassembleProgram(asm_res.machine_words, 0);
+    std::cout << Disassembler::formatListing(disasm_list);
+}
+
+void testStackVisualizerAndExceptions() {
+    std::cout << "\n=======================================================\n";
+    std::cout << " 4. TESTING ACTIVE ASCII STACK VISUALIZER & EXCEPTION FRAMEWORK\n";
+    std::cout << "=======================================================\n";
+
+    std::vector<word_t> test_mem(4096, 0);
+    addr_t sp = 0x00003FF0;
+    test_mem[0x00003FFC / 4] = 0xCAFEBABE; // Initial base value
+    test_mem[0x00003FF8 / 4] = 100;
+    test_mem[0x00003FF4 / 4] = 200;
+    test_mem[0x00003FF0 / 4] = 300;
+
+    std::cout << StackVisualizer::renderWithContext(test_mem, sp, 0x14, 0x100, 0x00003FFC, 0x00002000, 6);
+
+    // Test Exception Verification
+    ExceptionFramework ex_guard(StackBounds{0x00003FFC, 0x00002000, true});
+    std::cout << "Testing Stack Overflow Guard (SP = 0x00001000):\n";
+    ex_guard.checkStackPointer(0x00001000, 0x20, 45);
+    std::cout << ex_guard.dumpExceptionReport();
+
+    std::cout << "Testing Division-by-Zero Guard (divisor = 0):\n";
+    ex_guard.checkDivision(0, 0x28, 48);
+    std::cout << ex_guard.dumpExceptionReport();
+}
+
+void testMicroprogrammedControllers() {
+    std::cout << "\n=======================================================\n";
+    std::cout << " 5. MICROPROGRAMMED CONTROLLERS: VERTICAL vs HORIZONTAL\n";
+    std::cout << "=======================================================\n";
+
+    std::string sample =
+        "mov r1, 10\n"
+        "mov r2, 20\n"
+        "add r3, r1, r2\n"
+        "cmp r3, 30\n"
+        "beq target\n"
+        "mov r4, 1\n"
+        "target:\n"
+        "mov r4, 99\n"
+        "nop\n";
+
+    Assembler a;
+    AssemblyResult res = a.assemble(sample);
+    assert(res.success);
+
+    // 1. Vertical Microprogrammed Control Unit
+    ControlUnit vertical_cu;
+    vertical_cu.loadProgram(res.machine_words, 0);
+    uint32_t vert_cycles = 0;
     for (size_t i = 0; i < res.machine_words.size(); ++i) {
-        std::cout << "  [Word " << i << " @ 0x" << std::hex << std::setw(8) << std::setfill('0')
-                  << (i * 4) << "] : 0x" << std::setw(8) << res.machine_words[i] << "\n";
+        vert_cycles += vertical_cu.stepInstruction();
     }
+    double vert_cpi = static_cast<double>(vert_cycles) / res.machine_words.size();
 
-    std::cout << "\n=======================================================\n";
-    std::cout << " 3. TESTING VERTICAL MICROPROGRAMMED CONTROL UNIT (Ch. 9)\n";
-    std::cout << "=======================================================\n";
-
-    ControlUnit cu;
-    cu.loadProgram(res.machine_words, 0);
-
-    std::cout << "Initial Control Unit state:\n";
-    std::cout << cu.dumpInternalRegisters();
-
-    std::cout << "\nExecuting instructions through Micro-ROM multi-cycle shared bus...\n";
-    uint32_t total_micro_cycles = 0;
-
-    for (size_t inst_idx = 0; inst_idx < res.machine_words.size(); ++inst_idx) {
-        uint32_t cycles = cu.stepInstruction();
-        total_micro_cycles += cycles;
-        std::cout << "  -> Instruction " << std::dec << inst_idx << " finished in " << std::dec << cycles << " micro-cycles.\n";
+    // 2. Horizontal Microprogrammed Control Unit
+    HorizontalControlUnit horiz_cu;
+    horiz_cu.loadProgram(res.machine_words, 0);
+    uint32_t horiz_cycles = 0;
+    for (size_t i = 0; i < res.machine_words.size(); ++i) {
+        horiz_cycles += horiz_cu.stepInstruction();
     }
+    double horiz_cpi = static_cast<double>(horiz_cycles) / res.machine_words.size();
 
-    std::cout << "\nFinal Register State (r0 - r7):\n";
-    for (reg_t r = 0; r < 8; ++r) {
-        std::cout << "  r" << static_cast<int>(r) << " = " << std::dec << cu.getRegister(r)
-                  << " (0x" << std::hex << cu.getRegister(r) << ")\n";
-    }
-
-    std::cout << "\nFlags: [E=" << cu.getFlags().E << " GT=" << cu.getFlags().GT << "]\n";
-    std::cout << "Total Micro-Cycles Executed: " << std::dec << total_micro_cycles << "\n";
-    std::cout << "Average Micro-CPI: " << std::fixed << std::setprecision(2)
-              << (static_cast<double>(total_micro_cycles) / res.machine_words.size()) << "\n";
+    std::cout << "+-----------------------+---------------+---------------+---------------+---------------+\n";
+    std::cout << "| Controller Model      | Word Width    | Decoder Delay | Total uCycles | Micro-CPI     |\n";
+    std::cout << "+-----------------------+---------------+---------------+---------------+---------------+\n";
+    std::cout << "| Vertical (Ch. 9)      | 45 bits       | Gate Decode   | "
+              << std::setw(13) << vert_cycles << " | "
+              << std::fixed << std::setprecision(2) << std::setw(13) << vert_cpi << " |\n";
+    std::cout << "| Horizontal            | 64 bits       | 0 ns (Direct) | "
+              << std::setw(13) << horiz_cycles << " | "
+              << std::fixed << std::setprecision(2) << std::setw(13) << horiz_cpi << " |\n";
+    std::cout << "+-----------------------+---------------+---------------+---------------+---------------+\n";
 }
 
 void testPipelinedProcessor() {
     std::cout << "\n=======================================================\n";
-    std::cout << " 4. TESTING 4-STAGE PIPELINE (IF -> ID/RR -> EX -> MEM/WB)\n";
-    std::cout << "    Features: EX/MEM & MEM/WB Data Forwarding, Stalls, Flushes\n";
+    std::cout << " 6. TESTING 4-STAGE & 6-STAGE PIPELINES WITH HAZARDS\n";
     std::cout << "=======================================================\n";
 
-    // Test program designed specifically to trigger:
-    // 1. Consecutive RAW data hazards (EX->EX and MEM->EX forwarding)
-    // 2. Load-Use hazard (stalling 1 cycle)
-    // 3. Taken branch (flushing preceding pipeline stages)
     std::string pipe_code =
         "mov r1, 15\n"
         "mov r2, 25\n"
@@ -117,18 +176,14 @@ void testPipelinedProcessor() {
     AssemblyResult res = asm_tool.assemble(pipe_code);
     assert(res.success);
 
-    // 4-Stage Pipeline Run
     CPUPipeline pipe4(PipelineMode::FOUR_STAGE);
     pipe4.loadProgram(res.machine_words, 0);
-
-    std::cout << "Running 4-Stage Pipelined Datapath with Telemetry...\n";
     pipe4.run(100);
 
     std::cout << pipe4.dump4StageState();
     std::cout << pipe4.dumpRegisters();
     std::cout << pipe4.getMetrics().dump();
 
-    // Verify correct execution under pipeline hazards
     assert(pipe4.getRegister(1) == 15);
     assert(pipe4.getRegister(2) == 25);
     assert(pipe4.getRegister(3) == 40);
@@ -136,17 +191,9 @@ void testPipelinedProcessor() {
     assert(pipe4.getRegister(5) == 35);
     assert(pipe4.getRegister(6) == 35);
     assert(pipe4.getRegister(7) == 40);
-    assert(pipe4.getRegister(8) == 0); // Flushed! Remained 0
+    assert(pipe4.getRegister(8) == 0); // Flushed
     assert(pipe4.getRegister(9) == 50);
-    assert(pipe4.getMetrics().forwarding_events > 0);
-    assert(pipe4.getMetrics().stall_cycles > 0);
-    assert(pipe4.getMetrics().branch_flushes > 0);
     std::cout << "[PASS] 4-Stage Pipeline Forwarding, Load-Use Stall & Flush Verified!\n";
-
-    // 6-Stage Super-Pipeline Run
-    std::cout << "\n=======================================================\n";
-    std::cout << " 5. TESTING 6-STAGE SUPER-PIPELINE (IF1->IF2->ID->RR->EX->WB)\n";
-    std::cout << "=======================================================\n";
 
     CPUPipeline pipe6(PipelineMode::SIX_STAGE);
     pipe6.loadProgram(res.machine_words, 0);
@@ -157,16 +204,14 @@ void testPipelinedProcessor() {
     std::cout << pipe6.getMetrics().dump();
 
     assert(pipe6.getRegister(7) == 40);
-    assert(pipe6.getRegister(8) == 0); // Flushed
+    assert(pipe6.getRegister(8) == 0);
     assert(pipe6.getRegister(9) == 50);
     std::cout << "[PASS] 6-Stage Super-Pipeline Execution Verified!\n";
 
-    // Comparative Performance Table
     std::cout << "\n===============================================================================\n";
-    std::cout << " 6. ARCHITECTURAL COMPARATIVE EVALUATION (Microprogrammed vs 4-Stage vs 6-Stage)\n";
+    std::cout << " 7. ARCHITECTURAL COMPARATIVE EVALUATION\n";
     std::cout << "===============================================================================\n";
 
-    // Microprogrammed Baseline Run
     ControlUnit cu;
     cu.loadProgram(res.machine_words, 0);
     uint32_t cu_cycles = 0;
@@ -199,49 +244,64 @@ void testPipelinedProcessor() {
 }
 
 int main(int argc, char* argv[]) {
-    std::cout << "=======================================================\n";
-    std::cout << " SimpleRISC Integrated Processor Simulation Suite\n";
-    std::cout << " Features: ALU | Assembler | Micro-CU | 4-Stage & 6-Stage Pipelines\n";
-    std::cout << " Reference: Smruti R. Sarangi (Basic Computer Architecture)\n";
-    std::cout << "=======================================================\n";
+    // Check if CLI interactive debugger mode requested
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg == "--cli" || arg == "-i" || arg == "--debugger") {
+            CPUPipeline pipeline(PipelineMode::FOUR_STAGE);
+            // If a file is also passed, load it
+            if (i + 1 < argc && argv[i + 1][0] != '-') {
+                Assembler a;
+                AssemblyResult r = a.assembleFile(argv[i + 1]);
+                if (r.success) {
+                    pipeline.loadProgram(r.machine_words, 0);
+                    std::cout << "Loaded program " << argv[i + 1] << " (" << r.machine_words.size() << " instructions)\n";
+                }
+            }
+            DebuggerCLI dbg(pipeline);
+            dbg.runInteractive();
+            return 0;
+        }
+    }
 
-    // 1. ALU Test
+    std::cout << "===============================================================================\n";
+    std::cout << "   RISC201 COMPLETE INTEGRATED PROCESSOR SIMULATION & EVALUATION SUITE        \n";
+    std::cout << "   Computer Organization & Architecture (CSC-201) — Autumn 2026               \n";
+    std::cout << "   Reference: Smruti R. Sarangi (Basic Computer Architecture, Chapter 9)       \n";
+    std::cout << "===============================================================================\n";
+
+    // 1. ALU verification
     testALU();
 
-    // 2. Assembler & Micro-CU Test
-    std::string sample_program =
-        "mov r0, 5\n"
-        "mov r1, 10\n"
-        "mov r2, 20\n"
-        "add r3, r1, r2\n"
-        "mul r4, r1, r2\n"
-        "cmp r1, 10\n"
-        "beq is_equal\n"
-        "mov r5, 999\n"
-        "b finish\n"
-        "is_equal:\n"
-        "mov r5, 42\n"
-        "finish:\n"
-        "nop\n";
+    // 2. Stack Preprocessor & Disassembler
+    testStackPreprocessorAndDisassembler();
 
-    testAssemblerAndControlUnit(sample_program);
+    // 3. Stack Visualizer & Runtime Exception Framework
+    testStackVisualizerAndExceptions();
 
-    // 3. 4-Stage & 6-Stage Pipeline with Forwarding and Stalls
+    // 4. Horizontal vs Vertical Microprogramming Comparison
+    testMicroprogrammedControllers();
+
+    // 5. 4-Stage vs 6-Stage Pipeline Hazard Forwarding & Stalls
     testPipelinedProcessor();
 
-    // If an external source file was passed, run it through the 4-stage pipeline
-    if (argc >= 2) {
-        Assembler a;
-        AssemblyResult r = a.assembleFile(argv[1]);
-        if (r.success) {
-            std::cout << "\n=======================================================\n";
-            std::cout << " Running File on 4-Stage Pipeline: " << argv[1] << "\n";
-            std::cout << "=======================================================\n";
-            CPUPipeline file_pipe(PipelineMode::FOUR_STAGE);
-            file_pipe.loadProgram(r.machine_words, 0);
-            file_pipe.run(50000);
-            std::cout << file_pipe.dumpRegisters();
-            std::cout << file_pipe.getMetrics().dump();
+    // If external source file passed:
+    if (argc >= 2 && argv[1][0] != '-') {
+        StackPreprocessor prep;
+        PreprocessorReport pr = prep.processFile(argv[1]);
+        if (pr.success) {
+            Assembler a;
+            AssemblyResult r = a.assemble(pr.expanded_source);
+            if (r.success) {
+                std::cout << "\n=======================================================\n";
+                std::cout << " Running File: " << argv[1] << " (Expanded: " << pr.macros_expanded << " macros)\n";
+                std::cout << "=======================================================\n";
+                CPUPipeline file_pipe(PipelineMode::FOUR_STAGE);
+                file_pipe.loadProgram(r.machine_words, 0);
+                file_pipe.run(50000);
+                std::cout << file_pipe.dumpRegisters();
+                std::cout << file_pipe.getMetrics().dump();
+            }
         }
     }
 

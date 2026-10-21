@@ -12,8 +12,14 @@
         "include",
         "src/alu.cpp",
         "src/control_unit.cpp",
+        "src/horizontal_control_unit.cpp",
         "src/cpu_pipeline.cpp",
         "src/assembler.cpp",
+        "src/disassembler.cpp",
+        "src/stack_preprocessor.cpp",
+        "src/exception_framework.cpp",
+        "src/stack_visualizer.cpp",
+        "src/debugger_cli.cpp",
         "src/main.cpp",
         "-o",
         "${workspaceFolder}/simplerisc_sim.exe"
@@ -23,7 +29,7 @@
         "isDefault": true
       },
       "problemMatcher": ["$gcc"],
-      "detail": "Compiles ALU, Assembler, Control Unit, and Pipeline into simplerisc_sim.exe"
+      "detail": "Compiles ALU, Micro-CU, Pipeline, Assembler, Disassembler, Stack Framework, and CLI Debugger"
     },
     {
       "type": "shell",
@@ -35,7 +41,16 @@
         "isDefault": true
       },
       "problemMatcher": [],
-      "detail": "Builds and executes the SimpleRISC demo"
+      "detail": "Builds and executes the SimpleRISC demo suite"
+    },
+    {
+      "type": "shell",
+      "label": "Run Interactive CLI Debugger",
+      "command": "./simplerisc_sim.exe --cli",
+      "dependsOn": "Build SimpleRISC Simulator",
+      "group": "none",
+      "problemMatcher": [],
+      "detail": "Launches interactive step-by-step CPU debugger"
     }
   ]
 }
