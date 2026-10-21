@@ -12,22 +12,23 @@
         "include",
         "src/alu.cpp",
         "src/control_unit.cpp",
+        "src/cpu_pipeline.cpp",
         "src/assembler.cpp",
         "src/main.cpp",
         "-o",
-        "${workspaceFolder}/eval1_demo.exe"
+        "${workspaceFolder}/simplerisc_sim.exe"
       ],
       "group": {
         "kind": "build",
         "isDefault": true
       },
       "problemMatcher": ["$gcc"],
-      "detail": "Compiles ALU, Assembler, and Control Unit into eval1_demo.exe"
+      "detail": "Compiles ALU, Assembler, Control Unit, and Pipeline into simplerisc_sim.exe"
     },
     {
       "type": "shell",
       "label": "Run Simulator Demo",
-      "command": "./eval1_demo.exe",
+      "command": "./simplerisc_sim.exe",
       "dependsOn": "Build SimpleRISC Simulator",
       "group": {
         "kind": "test",
