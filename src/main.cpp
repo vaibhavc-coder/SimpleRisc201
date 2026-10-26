@@ -4,7 +4,7 @@
 #include <string>
 #include "types.hpp"
 #include "alu.hpp"
-#include "control_unit.hpp"
+#include "vertical_control_unit.hpp"
 #include "horizontal_control_unit.hpp"
 #include "cpu_pipeline.hpp"
 #include "assembler.hpp"
@@ -122,7 +122,7 @@ void testMicroprogrammedControllers() {
     assert(res.success);
 
     // 1. Vertical Microprogrammed Control Unit
-    ControlUnit vertical_cu;
+    VerticalControlUnit vertical_cu;
     vertical_cu.loadProgram(res.machine_words, 0);
     uint32_t vert_cycles = 0;
     for (size_t i = 0; i < res.machine_words.size(); ++i) {
@@ -212,7 +212,7 @@ void testPipelinedProcessor() {
     std::cout << " 7. ARCHITECTURAL COMPARATIVE EVALUATION\n";
     std::cout << "===============================================================================\n";
 
-    ControlUnit cu;
+    VerticalControlUnit cu;
     cu.loadProgram(res.machine_words, 0);
     uint32_t cu_cycles = 0;
     for (size_t i = 0; i < res.machine_words.size(); ++i) {

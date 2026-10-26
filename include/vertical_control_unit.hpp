@@ -1,5 +1,5 @@
-#ifndef SIMPLERISC_CONTROL_UNIT_HPP
-#define SIMPLERISC_CONTROL_UNIT_HPP
+#ifndef SIMPLERISC_VERTICAL_CONTROL_UNIT_HPP
+#define SIMPLERISC_VERTICAL_CONTROL_UNIT_HPP
 
 #include "types.hpp"
 #include "alu.hpp"
@@ -30,10 +30,10 @@ struct BusSignals {
     ALUOp alu_op{ALUOp::ADD};
 };
 
-class ControlUnit {
+class VerticalControlUnit {
 public:
-    ControlUnit();
-    ~ControlUnit() = default;
+    VerticalControlUnit();
+    ~VerticalControlUnit() = default;
 
     void reset();
 
@@ -88,6 +88,9 @@ private:
     std::array<upc_t, 32> opcode_switch_table_;
 };
 
+// Alias for backwards compatibility
+using ControlUnit = VerticalControlUnit;
+
 } // namespace simplerisc
 
-#endif // SIMPLERISC_CONTROL_UNIT_HPP
+#endif // SIMPLERISC_VERTICAL_CONTROL_UNIT_HPP

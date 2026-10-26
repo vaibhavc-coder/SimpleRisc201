@@ -11,7 +11,7 @@
         "-I",
         "include",
         "src/alu.cpp",
-        "src/control_unit.cpp",
+        "src/vertical_control_unit.cpp",
         "src/horizontal_control_unit.cpp",
         "src/cpu_pipeline.cpp",
         "src/assembler.cpp",

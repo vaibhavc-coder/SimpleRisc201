@@ -2,7 +2,7 @@ CXX ?= g++
 CXXFLAGS ?= -std=c++14 -Wall -Wextra -O2 -I include
 
 SRCS = src/alu.cpp \
-       src/control_unit.cpp \
+       src/vertical_control_unit.cpp \
        src/horizontal_control_unit.cpp \
        src/cpu_pipeline.cpp \
        src/assembler.cpp \

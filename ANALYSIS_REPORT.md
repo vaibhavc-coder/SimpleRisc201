@@ -13,7 +13,7 @@ This repository implements the **complete software environment, simulation frame
 | Requirement | Assignment Specification | Implementation Status | Core Source Files |
 |---|---|---|---|
 | **1.a** | 4-Stage & 6-Stage Pipelined Datapaths with Hazard Resolution | **Complete** | [`include/cpu_pipeline.hpp`](file:///c:/Users/vaibh/Downloads/eval1_submission/include/cpu_pipeline.hpp), [`src/cpu_pipeline.cpp`](file:///c:/Users/vaibh/Downloads/eval1_submission/src/cpu_pipeline.cpp) |
-| **1.b & 3** | Vertical & Horizontal Microprogrammed Control Units (ROM-driven) | **Complete** | [`include/control_unit.hpp`](file:///c:/Users/vaibh/Downloads/eval1_submission/include/control_unit.hpp), [`src/control_unit.cpp`](file:///c:/Users/vaibh/Downloads/eval1_submission/src/control_unit.cpp), [`include/horizontal_control_unit.hpp`](file:///c:/Users/vaibh/Downloads/eval1_submission/include/horizontal_control_unit.hpp), [`src/horizontal_control_unit.cpp`](file:///c:/Users/vaibh/Downloads/eval1_submission/src/horizontal_control_unit.cpp) |
+| **1.b & 3** | Vertical & Horizontal Microprogrammed Control Units (ROM-driven) | **Complete** | [`include/vertical_control_unit.hpp`](file:///c:/Users/vaibh/Downloads/eval1_submission/include/vertical_control_unit.hpp), [`src/vertical_control_unit.cpp`](file:///c:/Users/vaibh/Downloads/eval1_submission/src/vertical_control_unit.cpp), [`include/horizontal_control_unit.hpp`](file:///c:/Users/vaibh/Downloads/eval1_submission/include/horizontal_control_unit.hpp), [`src/horizontal_control_unit.cpp`](file:///c:/Users/vaibh/Downloads/eval1_submission/src/horizontal_control_unit.cpp) |
 | **1.c & 4** | 32-Bit Optimized ALU with Arithmetic, Logical, Shift, and CMP flags | **Complete** | [`include/alu.hpp`](file:///c:/Users/vaibh/Downloads/eval1_submission/include/alu.hpp), [`src/alu.cpp`](file:///c:/Users/vaibh/Downloads/eval1_submission/src/alu.cpp) |
 | **2.a** | Two-Pass Assembler translating assembly into binary/hex words | **Complete** | [`include/assembler.hpp`](file:///c:/Users/vaibh/Downloads/eval1_submission/include/assembler.hpp), [`src/assembler.cpp`](file:///c:/Users/vaibh/Downloads/eval1_submission/src/assembler.cpp) |
 | **2.b** | Disassembler reconstructing assembly from binary/hex strings | **Complete** | [`include/disassembler.hpp`](file:///c:/Users/vaibh/Downloads/eval1_submission/include/disassembler.hpp), [`src/disassembler.cpp`](file:///c:/Users/vaibh/Downloads/eval1_submission/src/disassembler.cpp) |
@@ -32,7 +32,7 @@ eval1_submission/
 ├── include/
 │   ├── types.hpp                  # ISA Specification, 21 Opcodes, 19 Internal Registers, Pipeline Latches
 │   ├── alu.hpp                    # 32-bit ALU interface (arithmetic, logic, shifts, comparison flags)
-│   ├── control_unit.hpp           # 45-bit Vertical Microprogrammed Control Unit (Sarangi Ch. 9)
+│   ├── vertical_control_unit.hpp  # 45-bit Vertical Microprogrammed Control Unit (Sarangi Ch. 9)
 │   ├── horizontal_control_unit.hpp# 64-bit Horizontal Microprogrammed Control Unit (Direct Gate Drive)
 │   ├── cpu_pipeline.hpp           # 4-stage and 6-stage pipelined datapath with hazard handling
 │   ├── assembler.hpp              # Two-pass 32-bit machine word encoder (Table 9.2 & 9.3)
@@ -43,7 +43,7 @@ eval1_submission/
 │   └── debugger_cli.hpp           # Interactive step-by-step CPU execution debugger
 ├── src/
 │   ├── alu.cpp                    # ALU execution routines with sign/zero extension and flag generation
-│   ├── control_unit.cpp           # Vertical Micro-ROM, shared-bus arbitration, and uPC switch logic
+│   ├── vertical_control_unit.cpp  # Vertical Micro-ROM, shared-bus arbitration, and uPC switch logic
 │   ├── horizontal_control_unit.cpp# Horizontal Micro-ROM with unencoded wide control words
 │   ├── cpu_pipeline.cpp           # Forwarding logic (EX/MEM, MEM/WB), load-use stalls, and branch flushes
 │   ├── assembler.cpp              # Two-pass symbol resolution and machine code generation
@@ -197,7 +197,7 @@ Invoked via `./simplerisc_sim.exe --cli`:
 
 ### Build the entire suite:
 ```powershell
-g++ -std=c++14 -O2 -I include src/alu.cpp src/control_unit.cpp src/horizontal_control_unit.cpp src/cpu_pipeline.cpp src/assembler.cpp src/disassembler.cpp src/stack_preprocessor.cpp src/exception_framework.cpp src/stack_visualizer.cpp src/debugger_cli.cpp src/main.cpp -o simplerisc_sim.exe
+g++ -std=c++14 -O2 -I include src/alu.cpp src/vertical_control_unit.cpp src/horizontal_control_unit.cpp src/cpu_pipeline.cpp src/assembler.cpp src/disassembler.cpp src/stack_preprocessor.cpp src/exception_framework.cpp src/stack_visualizer.cpp src/debugger_cli.cpp src/main.cpp -o simplerisc_sim.exe
 ```
 *(or simply press `Ctrl+Shift+B` in Antigravity IDE / VS Code)*
 

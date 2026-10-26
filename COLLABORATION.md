@@ -41,7 +41,7 @@ g++ --version
 - **Shortcut in VS Code:** Press `Ctrl+Shift+B` (Windows/Linux) or `Cmd+Shift+B` (Mac) to build.
 - **Manual Build:**
   ```bash
-  g++ -std=c++14 -O2 -I include src/alu.cpp src/control_unit.cpp src/assembler.cpp src/main.cpp -o eval1_demo.exe
+  g++ -std=c++14 -O2 -I include src/alu.cpp src/vertical_control_unit.cpp src/horizontal_control_unit.cpp src/assembler.cpp src/main.cpp -o eval1_demo.exe
   ./eval1_demo.exe
   ```
 

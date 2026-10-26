@@ -3,7 +3,7 @@
 
 #include "types.hpp"
 #include "alu.hpp"
-#include "control_unit.hpp"
+#include "vertical_control_unit.hpp"
 #include <string>
 #include <vector>
 #include <array>
@@ -188,7 +188,7 @@ private:
     PipelineMetrics metrics_;
 
     // Baseline microprogrammed control unit for comparative benchmarks
-    ControlUnit cu_;
+    VerticalControlUnit cu_;
 
     // 4-Stage Latches
     Latch_IF_ID  if_id_;

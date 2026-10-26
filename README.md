@@ -12,11 +12,11 @@ This repository contains the foundational components for the SimpleRISC processo
 ├── include/
 │   ├── types.hpp           # 32-bit SimpleRISC types, 21 opcodes, 19 internal registers, 45-bit microinstruction
 │   ├── alu.hpp             # 32-bit ALU interface (arithmetic, logic, shifts, cmp flags E & GT)
-│   ├── control_unit.hpp    # Vertical Microprogrammed Control Unit interface (Chapter 9)
+│   ├── vertical_control_unit.hpp # Vertical Microprogrammed Control Unit interface (Chapter 9)
 │   └── assembler.hpp       # Two-Pass 32-bit SimpleRISC Assembler
 ├── src/
 │   ├── alu.cpp             # 32-bit ALU implementation
-│   ├── control_unit.cpp    # Microprogram ROM, shared bus arbitration, and uPC dispatch table
+│   ├── vertical_control_unit.cpp # Microprogram ROM, shared bus arbitration, and uPC dispatch table
 │   ├── assembler.cpp       # Two-pass machine word encoder (Table 9.2 & 9.3)
 │   └── main.cpp            # Test driver verifying ALU, Assembler, and Control Unit
 ├── programs/
@@ -32,7 +32,7 @@ This repository contains the foundational components for the SimpleRISC processo
 
 ### 1. Build
 ```powershell
-g++ -std=c++14 -O2 -I include src/alu.cpp src/control_unit.cpp src/assembler.cpp src/main.cpp -o eval1_demo.exe
+g++ -std=c++14 -O2 -I include src/alu.cpp src/vertical_control_unit.cpp src/horizontal_control_unit.cpp src/assembler.cpp src/main.cpp -o eval1_demo.exe
 ```
 *(or simply run `make` or press `Ctrl+Shift+B` in VS Code)*
 
@@ -53,7 +53,7 @@ g++ -std=c++14 -O2 -I include src/alu.cpp src/control_unit.cpp src/assembler.cpp
    - Translates human-readable assembly mnemonics into 32-bit machine hex words following Table 9.2 and Table 9.3 formats.
    - Resolves forward and backward branch labels.
 
-3. **Vertical Microprogrammed Control Unit (`control_unit.cpp`):**
+3. **Vertical Microprogrammed Control Unit (`vertical_control_unit.cpp`):**
    - Implements the **19 internal registers** (Table 9.7: `pc`, `ir`, `rd`, `rs1`, `rs2`, `immx`, `A`, `B`, `aluResult`, `mar`, `mdr`, etc.).
    - Implements the **8 microinstructions** (Table 9.8: `mloadIR`, `mdecode`, `mswitch`, `mmov`, `mmovi`, `madd`, `mbeq`, `mb`).
    - Models the **shared bus datapath** with multi-cycle micro-instruction execution, showing instruction retirement and micro-CPI (~10.7 cycles/instruction).
