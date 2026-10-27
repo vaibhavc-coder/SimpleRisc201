@@ -141,6 +141,21 @@ void VerticalControlUnit::initMicrocode() {
     emitAluOp(OP_LSL, ALUOp::LSL);
     emitAluOp(OP_LSR, ALUOp::LSR);
     emitAluOp(OP_ASR, ALUOp::ASR);
+    emitAluOp(OP_FDIV, ALUOp::FDIV);
+
+    // Unary Conversion Routines: I2D and D2I
+    auto emitUnaryOp = [&](Opcode op, ALUOp alu_op) {
+        uint16_t start = static_cast<uint16_t>(micro_rom_.size());
+        opcode_switch_table_[op] = start;
+        emitMov(InternalReg::REG_SRC, InternalReg::RS1);
+        emitMov(InternalReg::A, InternalReg::REG_VAL);
+        emitMov(InternalReg::ALU_RESULT, InternalReg::A, static_cast<uint16_t>(alu_op));
+        emitMov(InternalReg::REG_SRC, InternalReg::RD);
+        emitMov(InternalReg::REG_DATA, InternalReg::ALU_RESULT);
+        emitMb(0);
+    };
+    emitUnaryOp(OP_I2D, ALUOp::I2D);
+    emitUnaryOp(OP_D2I, ALUOp::D2I);
 
     // CMP
     {

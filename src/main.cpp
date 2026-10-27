@@ -2,6 +2,8 @@
 #include <iomanip>
 #include <cassert>
 #include <string>
+#include <cmath>
+#include <cstring>
 #include "types.hpp"
 #include "alu.hpp"
 #include "vertical_control_unit.hpp"
@@ -17,26 +19,75 @@
 using namespace simplerisc;
 
 void testALU() {
-    std::cout << "\n=======================================================\n";
-    std::cout << " 1. TESTING 32-BIT ALU (Smruti Sarangi Architecture)\n";
-    std::cout << "=======================================================\n";
+    std::cout << "\n===============================================================================\n";
+    std::cout << " 1. TESTING 32-BIT HARDWARE-OPTIMIZED ALU (Radix-4 Booth, CLA, Newton-Raphson)\n";
+    std::cout << "===============================================================================\n";
 
+    // 1. Hierarchical GPK CLA Adder & Subtractor
     ALUResult add_res = ALU::execute(ALUOp::ADD, 15, 25);
-    std::cout << "[ALU ADD] 15 + 25 = " << add_res.result << " (Expected: 40)\n";
+    std::cout << "[CLA ADD] 15 + 25 = " << add_res.result << " | Flags: C=" << add_res.carry() << " V=" << add_res.overflow() << " (Expected: 40)\n";
+    assert(add_res.result == 40 && !add_res.carry() && !add_res.overflow());
+
+    ALUResult add_carry = ALU::execute(ALUOp::ADD, 0xFFFFFFFFU, 1);
+    std::cout << "[CLA CARRY] 0xFFFFFFFF + 1 = 0x" << std::hex << add_carry.result << std::dec << " | Flags: C=" << add_carry.carry() << " (Expected: C=1)\n";
+    assert(add_carry.carry());
 
     ALUResult sub_res = ALU::execute(ALUOp::SUB, 50, 20);
-    std::cout << "[ALU SUB] 50 - 20 = " << sub_res.result << " (Expected: 30)\n";
+    std::cout << "[CLA SUB] 50 - 20 = " << sub_res.result << " | Flags: C=" << sub_res.carry() << " (Expected: 30, no borrow C=1)\n";
+    assert(sub_res.result == 30 && sub_res.carry());
 
+    // 2. Radix-4 Modified Booth Multiplier (16 iterations, 3-bit window recoding)
     ALUResult mul_res = ALU::execute(ALUOp::MUL, 6, 7);
-    std::cout << "[ALU MUL] 6 * 7   = " << mul_res.result << " (Expected: 42)\n";
+    std::cout << "[BOOTH MUL] 6 * 7   = " << mul_res.result << " (Expected: 42)\n";
+    assert(mul_res.result == 42);
 
+    ALUResult mul_neg = ALU::execute(ALUOp::MUL, 50, static_cast<word_t>(-4));
+    std::cout << "[BOOTH MUL] 50 * -4 = " << static_cast<sword_t>(mul_neg.result) << " | Flags: N=" << mul_neg.negative() << " (Expected: -200)\n";
+    assert(static_cast<sword_t>(mul_neg.result) == -200 && mul_neg.negative());
+
+    // 3. Newton-Raphson Integer Divider & Modulo
+    ALUResult div_res = ALU::execute(ALUOp::DIV, 355, 113);
+    ALUResult mod_res = ALU::execute(ALUOp::MOD, 355, 113);
+    std::cout << "[NEWTON-RAPHSON] 355 / 113 = " << div_res.result << ", 355 % 113 = " << mod_res.result << " (Expected: Q=3, R=16)\n";
+    assert(div_res.result == 3 && mod_res.result == 16);
+    assert(113 * div_res.result + mod_res.result == 355);
+
+    // 4. Comparison Flags (E, GT, C, V, N, Z)
     ALUResult cmp_eq = ALU::execute(ALUOp::CMP, 100, 100);
     std::cout << "[ALU CMP] cmp 100, 100 -> flags.E=" << cmp_eq.flags.E
               << " flags.GT=" << cmp_eq.flags.GT << " (Expected: E=1, GT=0)\n";
+    assert(cmp_eq.flags.E && !cmp_eq.flags.GT);
 
     ALUResult cmp_gt = ALU::execute(ALUOp::CMP, 200, 50);
     std::cout << "[ALU CMP] cmp 200, 50  -> flags.E=" << cmp_gt.flags.E
               << " flags.GT=" << cmp_gt.flags.GT << " (Expected: E=0, GT=1)\n";
+    assert(!cmp_gt.flags.E && cmp_gt.flags.GT);
+
+    // 5. Bit-Level Conversions (I2D, D2I, CLZ)
+    sword_t test_val = -12345;
+    uint64_t dbits = ALU::intToDoubleBits(test_val);
+    sword_t recovered = ALU::doubleBitsToInt(dbits);
+    std::cout << "[I2D / D2I] Value: " << test_val << " -> Double bit pattern -> Recovered: " << recovered << " (Expected: -12345)\n";
+    assert(recovered == test_val);
+
+    // 6. IEEE-754 Single-Precision Floating-Point (Fig 8.18 FMUL & Newton-Raphson FDIV)
+    float fa = 3.5f, fb = 2.0f;
+    word_t wa, wb;
+    std::memcpy(&wa, &fa, sizeof(float));
+    std::memcpy(&wb, &fb, sizeof(float));
+    ALUResult fmul_res = ALU::execute(ALUOp::FMUL, wa, wb);
+    float f_res;
+    std::memcpy(&f_res, &fmul_res.result, sizeof(float));
+    std::cout << "[IEEE-754 FMUL] 3.5 * 2.0 = " << f_res << " (Expected: 7.0)\n";
+    assert(std::fabs(f_res - 7.0f) < 1e-6f);
+
+    bool fdiv_ovf = false, fdiv_unf = false, fdiv_div0 = false;
+    word_t fdiv_w = ALU::fpDivide32(wa, wb, fdiv_ovf, fdiv_unf, fdiv_div0);
+    float fdiv_val;
+    std::memcpy(&fdiv_val, &fdiv_w, sizeof(float));
+    std::cout << "[IEEE-754 FDIV] 3.5 / 2.0 = " << fdiv_val << " (Expected: 1.75)\n";
+    assert(std::fabs(fdiv_val - 1.75f) < 1e-6f);
+    std::cout << "[PASS] All 32-Bit ALU Hardware Optimizations & Arithmetic Tests Passed!\n";
 }
 
 void testStackPreprocessorAndDisassembler() {

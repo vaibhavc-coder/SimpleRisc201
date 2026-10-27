@@ -36,7 +36,8 @@ static const std::unordered_map<std::string, Opcode> opMap = {
     {"BGT", OP_BGT}, {"CALL", OP_CALL}, {"CMP", OP_CMP}, {"MOV", OP_MOV}, 
     {"NOT", OP_NOT}, {"LD", OP_LD}, {"ST", OP_ST}, {"ADD", OP_ADD}, 
     {"SUB", OP_SUB}, {"MUL", OP_MUL}, {"DIV", OP_DIV}, {"MOD", OP_MOD}, 
-    {"AND", OP_AND}, {"OR", OP_OR}, {"LSL", OP_LSL}, {"LSR", OP_LSR}, {"ASR", OP_ASR}
+    {"AND", OP_AND}, {"OR", OP_OR}, {"LSL", OP_LSL}, {"LSR", OP_LSR}, {"ASR", OP_ASR},
+    {"I2D", OP_I2D}, {"D2I", OP_D2I}, {"FDIV", OP_FDIV}
 };
 
 // --- Assembler Class Implementation ---
@@ -168,7 +169,14 @@ AssemblyResult Assembler::assemble(const std::string& raw_source) {
                 machine_word = encodeImm(op, r1, r2, imm);
             }
         } 
-        // Group 4: 2 Arguments (CMP, MOV, NOT)
+        // Group 4: Unary Register Conversions (I2D, D2I)
+        else if (mnem == "I2D" || mnem == "D2I") {
+            if (tokens.size() >= 3 && parseRegister(tokens[1], r1) && parseRegister(tokens[2], r2)) {
+                // UNARY_REG: [op: 31-27 | I=0: 26 | rd: 25-22 | rs1: 21-18 | 0: 17-0]
+                machine_word = ((op & 0x1F) << 27) | (0U << 26) | ((r1 & 0xF) << 22) | ((r2 & 0xF) << 18);
+            }
+        }
+        // Group 5: 2 Arguments (CMP, MOV, NOT)
         else if (mnem == "CMP" || mnem == "MOV" || mnem == "NOT") {
             reg_t rd = (mnem == "CMP") ? 0 : r1; // CMP has no destination register
             if (tokens.size() >= 3 && parseRegister(tokens[1], r1)) {
@@ -177,7 +185,7 @@ AssemblyResult Assembler::assemble(const std::string& raw_source) {
                 else { parseImmediate(tokens[2], imm); machine_word = encodeImm(op, rd, (mnem=="CMP")?r1:0, imm); }
             }
         } 
-        // Group 5: 3 Arguments (ALU Operations: ADD, SUB, MUL, etc.)
+        // Group 6: 3 Arguments (ALU Operations: ADD, SUB, MUL, FDIV, etc.)
         else {
             if (tokens.size() >= 4 && parseRegister(tokens[1], r1) && parseRegister(tokens[2], r2)) {
                 if (parseRegister(tokens[3], r3)){

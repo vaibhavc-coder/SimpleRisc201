@@ -35,6 +35,9 @@ std::string Disassembler::opcodeName(Opcode op) {
         case OP_B:    return "b";
         case OP_CALL: return "call";
         case OP_RET:  return "ret";
+        case OP_I2D:  return "i2d";
+        case OP_D2I:  return "d2i";
+        case OP_FDIV: return "fdiv";
         default:      return ".word";
     }
 }
@@ -59,6 +62,14 @@ DisassembledInstruction Disassembler::disassemble(word_t word, addr_t pc) {
     if (decoded.opcode == OP_RET) {
         d.operands = "";
         d.full_assembly = "ret";
+        return d;
+    }
+
+    if (decoded.format == InstFormat::UNARY_REG || decoded.opcode == OP_I2D || decoded.opcode == OP_D2I) {
+        std::string rd_str = regName(decoded.rd);
+        std::string rs1_str = regName(decoded.rs1);
+        d.operands = rd_str + ", " + rs1_str;
+        d.full_assembly = d.mnemonic + " " + d.operands;
         return d;
     }
 
