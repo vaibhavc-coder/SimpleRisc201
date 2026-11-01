@@ -16,6 +16,29 @@ std::string PipelineMetrics::dump() const {
     ss << "| Branch Flush Penalties:   " << std::setw(10) << branch_flushes << "                                        |\n";
     ss << "| Forwarding (Bypass) Hits: " << std::setw(10) << forwarding_events << "                                        |\n";
     ss << "| Load-Use Hazards Trapped: " << std::setw(10) << load_use_hazards << "                                        |\n";
+    if (branch_predictions > 0) {
+        ss << "| Branch Predictor Hits:    " << std::setw(10) << branch_prediction_hits << "                                        |\n";
+        ss << "| Branch Accuracy:          " << std::fixed << std::setprecision(1) << std::setw(9) << getPredictionAccuracy() << "%                                        |\n";
+    }
+    if (ras_predictions > 0) {
+        ss << "| RAS Return Hits:          " << std::setw(10) << ras_hits << "                                        |\n";
+        ss << "| RAS Accuracy:             " << std::fixed << std::setprecision(1) << std::setw(9) << getRasAccuracy() << "%                                        |\n";
+    }
+    if (early_branch_resolutions > 0) {
+        ss << "| Early Branch (ID) Hits:   " << std::setw(10) << early_branch_resolutions << "                                        |\n";
+    }
+    if (store_load_forwards > 0) {
+        ss << "| Store-Load Forwards:      " << std::setw(10) << store_load_forwards << "                                        |\n";
+    }
+    if (icache_accesses > 0) {
+        ss << "| L1 I-Cache Hit Rate:      " << std::fixed << std::setprecision(1) << std::setw(9) << getICacheHitRate() << "% (" << icache_hits << "/" << icache_accesses << ")                         |\n";
+    }
+    if (dcache_accesses > 0) {
+        ss << "| L1 D-Cache Hit Rate:      " << std::fixed << std::setprecision(1) << std::setw(9) << getDCacheHitRate() << "% (" << dcache_hits << "/" << dcache_accesses << ")                         |\n";
+    }
+    if (structural_stalls_avoided > 0) {
+        ss << "| Structural Haz Avoided:   " << std::setw(10) << structural_stalls_avoided << "                                        |\n";
+    }
     ss << "| CPI (Cycles / Inst):      " << std::fixed << std::setprecision(3) << std::setw(10) << getCPI() << "                                        |\n";
     ss << "| IPC (Throughput):         " << std::fixed << std::setprecision(3) << std::setw(10) << getIPC() << "                                        |\n";
     ss << "+-----------------------------------------------------------------------------+\n";
@@ -38,6 +61,14 @@ void CPUPipeline::reset() {
     metrics_ = PipelineMetrics{};
 
     cu_.reset();
+
+    for (auto& entry : btb_) {
+        entry = BTBEntry{};
+    }
+    ras_.reset();
+    store_buffer_.reset();
+    icache_.reset();
+    dcache_.reset();
 
     if_id_ = Latch_IF_ID{};
     id_ex_ = Latch_ID_EX{};
@@ -95,6 +126,39 @@ void CPUPipeline::writeMemory(addr_t addr, word_t val) {
     if (word_idx < mem_.size()) mem_[word_idx] = val;
 }
 
+std::pair<bool, addr_t> CPUPipeline::queryBranchPredictor(addr_t pc) const {
+    size_t idx = (pc / 4) % BTB_SIZE;
+    const auto& entry = btb_[idx];
+    if (entry.valid) {
+        bool predict_taken = (entry.state == BranchPredictionState::WEAKLY_TAKEN ||
+                              entry.state == BranchPredictionState::STRONGLY_TAKEN);
+        return {predict_taken, entry.target};
+    }
+    return {false, pc + 4};
+}
+
+void CPUPipeline::updateBranchPredictor(addr_t pc, bool taken, addr_t target) {
+    size_t idx = (pc / 4) % BTB_SIZE;
+    auto& entry = btb_[idx];
+    entry.valid = true;
+    entry.target = target;
+    if (taken) {
+        if (entry.state == BranchPredictionState::STRONGLY_NOT_TAKEN)
+            entry.state = BranchPredictionState::WEAKLY_NOT_TAKEN;
+        else if (entry.state == BranchPredictionState::WEAKLY_NOT_TAKEN)
+            entry.state = BranchPredictionState::WEAKLY_TAKEN;
+        else
+            entry.state = BranchPredictionState::STRONGLY_TAKEN;
+    } else {
+        if (entry.state == BranchPredictionState::STRONGLY_TAKEN)
+            entry.state = BranchPredictionState::WEAKLY_TAKEN;
+        else if (entry.state == BranchPredictionState::WEAKLY_TAKEN)
+            entry.state = BranchPredictionState::WEAKLY_NOT_TAKEN;
+        else
+            entry.state = BranchPredictionState::STRONGLY_NOT_TAKEN;
+    }
+}
+
 bool CPUPipeline::is4StageEmpty() const {
     return !if_id_.valid && !id_ex_.valid && !ex_mem_.valid && !mem_wb_.valid;
 }
@@ -128,23 +192,39 @@ bool CPUPipeline::step4StageCycle() {
     bool stall_pipeline = false;
     bool branch_taken = false;
     addr_t branch_target = 0;
+    bool branch_resolved_in_id = false;
 
     // ------------------------------------------------------------------------
-    // STAGE 4: MEMORY ACCESS & WRITEBACK (MEM/WB)
+    // STAGE 4: MEMORY ACCESS & WRITEBACK (MEM/WB) WITH L1 D-CACHE & STORE BUFFER
     // ------------------------------------------------------------------------
     if (ex_mem_.valid && !ex_mem_.bubble) {
         word_t write_data = ex_mem_.alu_result;
 
         if (ex_mem_.inst.isLoad()) {
-            write_data = readMemory(ex_mem_.alu_result);
+            // Check Store Buffer for Store-to-Load Forwarding
+            word_t fwd_val = 0;
+            if (store_buffer_.lookup(ex_mem_.alu_result, fwd_val)) {
+                write_data = fwd_val;
+                metrics_.store_load_forwards++;
+            } else {
+                metrics_.dcache_accesses++;
+                bool dhit = dcache_.access(ex_mem_.alu_result, false, 0, mem_, write_data);
+                if (dhit) metrics_.dcache_hits++;
+            }
         } else if (ex_mem_.inst.isStore()) {
+            // Insert into Store Buffer and write-through to D-Cache and memory
+            store_buffer_.insert(ex_mem_.alu_result, ex_mem_.store_data);
+            metrics_.dcache_accesses++;
+            word_t dummy = 0;
+            bool dhit = dcache_.access(ex_mem_.alu_result, true, ex_mem_.store_data, mem_, dummy);
+            if (dhit) metrics_.dcache_hits++;
             writeMemory(ex_mem_.alu_result, ex_mem_.store_data);
         }
 
-        if (ex_mem_.inst.writesRd()) {
-            regs_[ex_mem_.inst.rd] = write_data;
-        } else if (ex_mem_.inst.opcode == OP_CALL) {
+        if (ex_mem_.inst.opcode == OP_CALL) {
             regs_[RA] = ex_mem_.pc + 4;
+        } else if (ex_mem_.inst.writesRd()) {
+            regs_[ex_mem_.inst.rd] = write_data;
         }
 
         metrics_.instructions_retired++;
@@ -226,23 +306,41 @@ bool CPUPipeline::step4StageCycle() {
             alu_out = res.result;
         }
 
-        // Branch Resolution
-        branch_target = id_ex_.inst.branch_target;
-        if (id_ex_.inst.opcode == OP_BEQ) {
-            branch_taken = flags_.E;
-        } else if (id_ex_.inst.opcode == OP_BGT) {
-            branch_taken = flags_.GT;
-        } else if (id_ex_.inst.opcode == OP_B || id_ex_.inst.opcode == OP_CALL) {
-            branch_taken = true;
-        } else if (id_ex_.inst.opcode == OP_RET) {
-            branch_taken = true;
-            branch_target = regs_[RA];
-        }
+        // Branch Resolution (Conditional Branches & RET evaluated with ALU flags / RA)
+        if (id_ex_.inst.opcode == OP_BEQ || id_ex_.inst.opcode == OP_BGT) {
+            bool cond_met = (id_ex_.inst.opcode == OP_BEQ) ? flags_.E : flags_.GT;
+            addr_t actual_target = id_ex_.inst.branch_target;
+            metrics_.branch_predictions++;
+            updateBranchPredictor(id_ex_.pc, cond_met, actual_target);
 
-        if (branch_taken) {
-            last_flush_ = true;
-            metrics_.branch_flushes++;
-            pc_ = branch_target;
+            if (cond_met == id_ex_.predicted_taken && (!cond_met || id_ex_.predicted_target == actual_target)) {
+                // Correct prediction! 0 penalty cycles
+                metrics_.branch_prediction_hits++;
+            } else {
+                // Misprediction penalty
+                branch_taken = true;
+                branch_target = cond_met ? actual_target : id_ex_.fallthrough_pc;
+                last_flush_ = true;
+                metrics_.branch_flushes++;
+                pc_ = branch_target;
+            }
+        } else if (id_ex_.inst.opcode == OP_RET) {
+            addr_t actual_target = regs_[RA];
+            metrics_.branch_predictions++;
+            if (id_ex_.ras_predicted && id_ex_.predicted_target == actual_target) {
+                // RAS Return Prediction Hit! 0 Penalty Bubbles!
+                metrics_.ras_hits++;
+                metrics_.branch_prediction_hits++;
+                branch_taken = false;
+                last_flush_ = false;
+            } else {
+                // RAS Miss or unpredicted return
+                branch_taken = true;
+                branch_target = actual_target;
+                last_flush_ = true;
+                metrics_.branch_flushes++;
+                pc_ = branch_target;
+            }
         }
 
         next_ex_mem.pc = id_ex_.pc;
@@ -295,32 +393,91 @@ bool CPUPipeline::step4StageCycle() {
                 if (next_mem_wb.inst.rd == dec.rd)  val_rd  = next_mem_wb.write_data;
             }
 
+            // Early Branch Resolution in ID for Unconditional Branches (B, CALL)
+            if (dec.opcode == OP_CALL) {
+                ras_.push(if_id_.pc + 4);
+            }
+
+            if (dec.opcode == OP_B || dec.opcode == OP_CALL) {
+                addr_t target = dec.branch_target;
+                metrics_.branch_predictions++;
+                updateBranchPredictor(if_id_.pc, true, target);
+
+                if (!if_id_.predicted_taken || if_id_.predicted_target != target) {
+                    branch_resolved_in_id = true;
+                    last_flush_ = true;
+                    metrics_.branch_flushes++;
+                    metrics_.early_branch_resolutions++;
+                    pc_ = target;
+                } else {
+                    metrics_.branch_prediction_hits++;
+                }
+            }
+
             next_id_ex.pc = if_id_.pc;
             next_id_ex.inst = dec;
             next_id_ex.val_rs1 = val_rs1;
             next_id_ex.val_rs2 = val_rs2;
             next_id_ex.val_rd = val_rd;
+            next_id_ex.predicted_taken = if_id_.predicted_taken;
+            next_id_ex.predicted_target = if_id_.predicted_target;
+            next_id_ex.fallthrough_pc = if_id_.fallthrough_pc;
+            next_id_ex.ras_predicted = if_id_.ras_predicted;
             next_id_ex.valid = true;
             next_id_ex.bubble = false;
         }
     }
 
     // ------------------------------------------------------------------------
-    // STAGE 1: INSTRUCTION FETCH (IF)
+    // STAGE 1: INSTRUCTION FETCH (IF) WITH DYNAMIC BRANCH PREDICTION
     // ------------------------------------------------------------------------
-    if (branch_taken) {
+    if (branch_taken || branch_resolved_in_id) {
         next_if_id.valid = false;
         next_if_id.bubble = true;
     } else if (stall_pipeline) {
         next_if_id = if_id_;
     } else {
         if (pc_ < text_end_) {
-            word_t raw = readMemory(pc_);
+            // L1 Instruction Cache Access
+            metrics_.icache_accesses++;
+            word_t raw = 0;
+            bool ihit = icache_.access(pc_, false, 0, mem_, raw);
+            if (ihit) metrics_.icache_hits++;
+
+            // Check if memory structural hazard was avoided (both IF and MEM active)
+            if (ex_mem_.valid && !ex_mem_.bubble && (ex_mem_.inst.isLoad() || ex_mem_.inst.isStore())) {
+                metrics_.structural_stalls_avoided++;
+            }
+
             next_if_id.pc = pc_;
             next_if_id.raw_inst = raw;
             next_if_id.valid = true;
             next_if_id.bubble = false;
-            pc_ += 4;
+
+            // Speculative Return Address Stack (RAS) Check for 'ret'
+            // In SimpleRISC, OP_RET is opcode 20 (0b10100) in bits [31:27]
+            Opcode op = static_cast<Opcode>((raw >> 27) & 0x1F);
+            if (op == OP_RET && !ras_.empty()) {
+                addr_t pred_ret = ras_.pop();
+                next_if_id.ras_predicted = true;
+                next_if_id.predicted_target = pred_ret;
+                next_if_id.predicted_taken = true;
+                next_if_id.fallthrough_pc = pc_ + 4;
+                metrics_.ras_predictions++;
+                pc_ = pred_ret;
+            } else {
+                auto pred = queryBranchPredictor(pc_);
+                if (pred.first && pred.second < text_end_) {
+                    next_if_id.predicted_taken = true;
+                    next_if_id.predicted_target = pred.second;
+                    next_if_id.fallthrough_pc = pc_ + 4;
+                    pc_ = pred.second;
+                } else {
+                    next_if_id.predicted_taken = false;
+                    next_if_id.fallthrough_pc = pc_ + 4;
+                    pc_ += 4;
+                }
+            }
         } else {
             next_if_id.valid = false;
             next_if_id.bubble = true;
@@ -363,19 +520,32 @@ bool CPUPipeline::step6StageCycle() {
     bool branch_taken = false;
     addr_t branch_target = 0;
 
-    // STAGE 6: WB
+    // STAGE 6: WB WITH D-CACHE & STORE BUFFER
     if (ex_mem6_.valid && !ex_mem6_.bubble) {
         word_t write_data = ex_mem6_.alu_result;
         if (ex_mem6_.inst.isLoad()) {
-            write_data = readMemory(ex_mem6_.alu_result);
+            word_t fwd = 0;
+            if (store_buffer_.lookup(ex_mem6_.alu_result, fwd)) {
+                write_data = fwd;
+                metrics_.store_load_forwards++;
+            } else {
+                metrics_.dcache_accesses++;
+                bool dhit = dcache_.access(ex_mem6_.alu_result, false, 0, mem_, write_data);
+                if (dhit) metrics_.dcache_hits++;
+            }
         } else if (ex_mem6_.inst.isStore()) {
+            store_buffer_.insert(ex_mem6_.alu_result, ex_mem6_.store_data);
+            metrics_.dcache_accesses++;
+            word_t dummy = 0;
+            bool dhit = dcache_.access(ex_mem6_.alu_result, true, ex_mem6_.store_data, mem_, dummy);
+            if (dhit) metrics_.dcache_hits++;
             writeMemory(ex_mem6_.alu_result, ex_mem6_.store_data);
         }
 
-        if (ex_mem6_.inst.writesRd()) {
-            regs_[ex_mem6_.inst.rd] = write_data;
-        } else if (ex_mem6_.inst.opcode == OP_CALL) {
+        if (ex_mem6_.inst.opcode == OP_CALL) {
             regs_[RA] = ex_mem6_.pc + 4;
+        } else if (ex_mem6_.inst.writesRd()) {
+            regs_[ex_mem6_.inst.rd] = write_data;
         }
 
         metrics_.instructions_retired++;
@@ -510,6 +680,14 @@ bool CPUPipeline::step6StageCycle() {
         bool load_use = false;
         if (rr_ex_.valid && !rr_ex_.bubble && rr_ex_.inst.isLoad()) {
             reg_t lrd = rr_ex_.inst.rd;
+            if ((dec.readsRs1() && dec.rs1 == lrd) ||
+                (dec.readsRs2() && dec.rs2 == lrd) ||
+                (dec.readsStoreRd() && dec.rd == lrd)) {
+                load_use = true;
+            }
+        }
+        if (id_rr_.valid && !id_rr_.bubble && id_rr_.inst.isLoad()) {
+            reg_t lrd = id_rr_.inst.rd;
             if ((dec.readsRs1() && dec.rs1 == lrd) ||
                 (dec.readsRs2() && dec.rs2 == lrd) ||
                 (dec.readsStoreRd() && dec.rd == lrd)) {

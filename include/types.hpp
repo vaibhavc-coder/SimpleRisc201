@@ -271,7 +271,7 @@ struct Instruction {
         if (!valid) return false;
         if (opcode == OP_CMP) return false;
         if (opcode == OP_ST) return false;
-        if (opcode == OP_NOP || opcode == OP_RET || opcode == OP_BEQ || opcode == OP_BGT || opcode == OP_B) return false;
+        if (opcode == OP_NOP || opcode == OP_RET || opcode == OP_BEQ || opcode == OP_BGT || opcode == OP_B || opcode == OP_CALL) return false;
         return true;
     }
 

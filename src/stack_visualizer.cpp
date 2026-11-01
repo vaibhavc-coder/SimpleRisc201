@@ -23,6 +23,7 @@ std::string StackVisualizer::renderWithContext(
     addr_t stack_limit,
     size_t max_depth_words) {
     
+    (void)pc;
     std::ostringstream oss;
     oss << "+-----------------------------------------------------------------------------+\n";
     oss << "|                 ACTIVE STACK MEMORY FRAME (FULL DESCENDING)                 |\n";
@@ -73,10 +74,10 @@ std::string StackVisualizer::renderWithContext(
             tag = "[Stack Origin / Base]";
         }
 
-        oss << "| 0x" << std::hex << std::setw(8) << std::setfill('0') << cur_addr
-            << " | +" << std::dec << std::setw(3) << std::setfill(' ') << offset << "B      "
-            << " | 0x" << std::hex << std::setw(8) << std::setfill('0') << val << "  "
-            << " | " << std::dec << std::setw(12) << std::setfill(' ') << signed_val << " "
+        oss << "| 0x" << std::right << std::hex << std::setw(8) << std::setfill('0') << cur_addr
+            << " | +" << std::right << std::dec << std::setw(3) << std::setfill(' ') << offset << "B      "
+            << " | 0x" << std::right << std::hex << std::setw(8) << std::setfill('0') << val << "  "
+            << " | " << std::right << std::dec << std::setw(12) << std::setfill(' ') << signed_val << " "
             << " | " << std::left << std::setw(21) << std::setfill(' ') << tag << "|\n";
 
         cur_addr += 4;

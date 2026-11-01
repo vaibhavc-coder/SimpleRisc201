@@ -154,7 +154,7 @@ std::string ExceptionFramework::dumpExceptionReport() const {
     }
 
     oss << "| Exception Type:    " << std::left << std::setw(57) << exceptionName(last_fault_.type) << "|\n";
-    oss << "| Faulting PC:       0x" << std::hex << std::setw(8) << std::setfill('0') << last_fault_.faulting_pc
+    oss << "| Faulting PC:       0x" << std::right << std::hex << std::setw(8) << std::setfill('0') << last_fault_.faulting_pc
         << " (" << std::dec << last_fault_.faulting_pc << ")" << std::right << std::setw(47) << std::setfill(' ') << "|\n";
     oss << "| Faulting SP:       0x" << std::hex << std::setw(8) << std::setfill('0') << last_fault_.faulting_sp
         << " (" << std::dec << last_fault_.faulting_sp << ")" << std::right << std::setw(47) << std::setfill(' ') << "|\n";

@@ -294,6 +294,45 @@ void testPipelinedProcessor() {
     std::cout << "+-----------------------+---------------+---------------+---------------+---------------+\n";
 }
 
+void testDatapathOptimizations() {
+    std::cout << "\n=======================================================\n";
+    std::cout << " 6.B TESTING ADVANCED DATAPATH (RAS, STORE-FORWARD, L1 CACHES)\n";
+    std::cout << "=======================================================\n";
+
+    std::string test_code = 
+        "mov r1, 100\n"
+        "st r1, 200(r0)\n"        // Store r1 to addr 200
+        "ld r2, 200(r0)\n"        // Immediate load from addr 200 (Store-to-Load Forwarding!)
+        "call my_sub\n"           // Call subroutine (Pushes PC+4 to Return Address Stack)
+        "mov r4, 77\n"
+        "b end_test\n"
+        "my_sub:\n"
+        "add r3, r2, 50\n"        // r3 = 100 + 50 = 150
+        "ret\n"                   // Return (RAS speculative predict target = mov r4, 77)
+        "end_test:\n"
+        "nop\n";
+
+    Assembler asm_tool;
+    auto res = asm_tool.assemble(test_code);
+    assert(res.success);
+
+    CPUPipeline pipe(PipelineMode::FOUR_STAGE);
+    pipe.loadProgram(res.machine_words, 0);
+    pipe.run(50);
+
+    std::cout << pipe.dumpRegisters();
+    std::cout << pipe.getMetrics().dump();
+
+    assert(pipe.getRegister(1) == 100);
+    assert(pipe.getRegister(2) == 100);
+    assert(pipe.getRegister(3) == 150);
+    assert(pipe.getRegister(4) == 77);
+    assert(pipe.getMetrics().store_load_forwards >= 1);
+    assert(pipe.getMetrics().ras_hits >= 1);
+
+    std::cout << "[PASS] Advanced Datapath Optimizations (RAS, Store-Forward, L1 Caches) Verified!\n";
+}
+
 int main(int argc, char* argv[]) {
     // Check if CLI interactive debugger mode requested
     for (int i = 1; i < argc; ++i) {
@@ -335,6 +374,9 @@ int main(int argc, char* argv[]) {
 
     // 5. 4-Stage vs 6-Stage Pipeline Hazard Forwarding & Stalls
     testPipelinedProcessor();
+
+    // 6. Advanced Pipeline Datapath Optimizations (RAS, Store Forwarding, L1 Caches)
+    testDatapathOptimizations();
 
     // If external source file passed:
     if (argc >= 2 && argv[1][0] != '-') {

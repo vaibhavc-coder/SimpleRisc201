@@ -185,8 +185,8 @@ std::string Disassembler::formatListing(const std::vector<DisassembledInstructio
     oss << "| Address    | Machine Hex| Assembly Instruction                 |\n";
     oss << "+------------+------------+--------------------------------------+\n";
     for (const auto& item : insts) {
-        oss << "| 0x" << std::hex << std::setw(8) << std::setfill('0') << item.address
-            << " | 0x" << std::setw(8) << std::setfill('0') << item.machine_word
+        oss << "| 0x" << std::right << std::hex << std::setw(8) << std::setfill('0') << item.address
+            << " | 0x" << std::right << std::hex << std::setw(8) << std::setfill('0') << item.machine_word
             << " | " << std::left << std::setw(36) << std::setfill(' ') << item.full_assembly
             << "|\n";
     }
