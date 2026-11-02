@@ -351,6 +351,52 @@ void testDatapathOptimizations() {
     std::cout << "[PASS] Advanced Datapath Optimizations Verified on both 4-Stage & 6-Stage Pipelines!\n";
 }
 
+void testStackInnovations() {
+    std::cout << "\n=======================================================\n";
+    std::cout << " 6.C TESTING STACK INNOVATIONS (BLOCK PUSH/POP & STACK ENGINE)\n";
+    std::cout << "=======================================================\n";
+
+    std::string multi_stack_prog =
+        "main:\n"
+        "  mov r1, 11\n"
+        "  mov r2, 22\n"
+        "  mov r3, 33\n"
+        "  mov r4, 44\n"
+        "  push {r1, r2, r3, r4}\n"
+        "  mov r1, 0\n"
+        "  mov r2, 0\n"
+        "  mov r3, 0\n"
+        "  mov r4, 0\n"
+        "  pop {r1, r2, r3, r4}\n"
+        "  nop\n";
+
+    StackPreprocessor prep;
+    PreprocessorReport pr = prep.process(multi_stack_prog);
+    assert(pr.success);
+    assert(pr.macros_expanded == 2);
+    std::cout << "Consolidated Push/Pop successfully expanded (10 instructions instead of 16):\n" << pr.expanded_source << "\n";
+
+    Assembler asm_tool;
+    AssemblyResult res = asm_tool.assemble(pr.expanded_source);
+    assert(res.success);
+
+    CPUPipeline pipe(PipelineMode::FOUR_STAGE);
+    pipe.loadProgram(res.machine_words, 0);
+    pipe.run(100);
+
+    assert(pipe.getRegister(1) == 11);
+    assert(pipe.getRegister(2) == 22);
+    assert(pipe.getRegister(3) == 33);
+    assert(pipe.getRegister(4) == 44);
+    assert(pipe.getRegister(SP) == 0x00003FFC);
+    assert(pipe.getMetrics().stack_engine_resolutions >= 2);
+
+    std::cout << pipe.dumpRegisters();
+    std::cout << pipe.getMetrics().dump();
+    std::cout << "[PASS] Consolidated Block Push/Pop & Front-End Stack Engine Verified!\n";
+}
+
+
 int main(int argc, char* argv[]) {
     std::string mode_str = "both";
     std::string file_path = "";
@@ -429,6 +475,9 @@ int main(int argc, char* argv[]) {
 
         // 6. Advanced Pipeline Datapath Optimizations (RAS, Store Forwarding, L1 Caches)
         testDatapathOptimizations();
+
+        // 7. Stack Architectural Innovations (Consolidated Push/Pop & Stack Engine)
+        testStackInnovations();
     }
 
     // If external source file passed:

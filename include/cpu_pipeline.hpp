@@ -81,6 +81,42 @@ private:
 };
 
 // ----------------------------------------------------------------------------
+// Front-End Hardware Stack Engine (Intel Core / ARM Style)
+// Tracks SP deltas in the Decode (ID/OF) stage, eliminating ALU contention for SP
+// ----------------------------------------------------------------------------
+class StackEngine {
+public:
+    StackEngine() { reset(); }
+
+    void reset(word_t initial_sp = 0x00003FFC) {
+        current_sp_ = initial_sp;
+    }
+
+    // Check if an instruction is an explicit Stack Pointer adjustment: sub sp, sp, imm or add sp, sp, imm
+    static bool isSpAdjustment(const Instruction& inst) {
+        return (inst.rd == SP && inst.rs1 == SP && inst.I &&
+               (inst.opcode == OP_ADD || inst.opcode == OP_SUB));
+    }
+
+    // Calculate new SP immediately in front-end
+    word_t updateInDecode(const Instruction& inst, word_t base_sp) {
+        if (inst.opcode == OP_SUB) {
+            current_sp_ = base_sp - inst.immx;
+        } else if (inst.opcode == OP_ADD) {
+            current_sp_ = base_sp + inst.immx;
+        }
+        return current_sp_;
+    }
+
+    word_t getSP() const { return current_sp_; }
+    void setSP(word_t sp) { current_sp_ = sp; }
+
+private:
+    word_t current_sp_{0x00003FFC};
+};
+
+
+// ----------------------------------------------------------------------------
 // L1 Cache Subsystem (Harvard Architecture: Split I-Cache & D-Cache)
 // Resolves Von Neumann Structural Hazard on Memory Access
 // ----------------------------------------------------------------------------
@@ -236,6 +272,7 @@ struct PipelineMetrics {
     uint64_t dcache_accesses{0};          // L1 D-Cache access attempts
     uint64_t dcache_hits{0};              // L1 D-Cache hits
     uint64_t structural_stalls_avoided{0};// Memory ports structural hazards eliminated
+    uint64_t stack_engine_resolutions{0}; // Front-end Stack Engine SP adjustments resolved
 
     double getPredictionAccuracy() const {
         return (branch_predictions > 0) ? (static_cast<double>(branch_prediction_hits) / branch_predictions * 100.0) : 0.0;
@@ -442,6 +479,7 @@ private:
     static constexpr size_t BTB_SIZE = 64;
     std::array<BTBEntry, BTB_SIZE> btb_;
     ReturnAddressStack ras_;
+    StackEngine stack_engine_;
     StoreBuffer store_buffer_;
     L1Cache icache_;
     L1Cache dcache_;

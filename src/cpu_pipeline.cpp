@@ -39,6 +39,9 @@ std::string PipelineMetrics::dump() const {
     if (structural_stalls_avoided > 0) {
         ss << "| Structural Haz Avoided:   " << std::setw(10) << structural_stalls_avoided << "                                        |\n";
     }
+    if (stack_engine_resolutions > 0) {
+        ss << "| Stack Engine Absorbed:    " << std::setw(10) << stack_engine_resolutions << "                                        |\n";
+    }
     ss << "| CPI (Cycles / Inst):      " << std::fixed << std::setprecision(3) << std::setw(10) << getCPI() << "                                        |\n";
     ss << "| IPC (Throughput):         " << std::fixed << std::setprecision(3) << std::setw(10) << getIPC() << "                                        |\n";
     ss << "+-----------------------------------------------------------------------------+\n";
@@ -66,6 +69,7 @@ void CPUPipeline::reset() {
         entry = BTBEntry{};
     }
     ras_.reset();
+    stack_engine_.reset(0x00003FFC);
     store_buffer_.reset();
     icache_.reset();
     dcache_.reset();
@@ -111,7 +115,10 @@ word_t CPUPipeline::getRegister(reg_t r) const {
 }
 
 void CPUPipeline::setRegister(reg_t r, word_t val) {
-    if (r < NUM_REGISTERS) regs_[r] = val;
+    if (r < NUM_REGISTERS) {
+        regs_[r] = val;
+        if (r == SP) stack_engine_.setSP(val);
+    }
 }
 
 word_t CPUPipeline::readMemory(addr_t addr) const {
@@ -406,6 +413,17 @@ bool CPUPipeline::step4StageCycle() {
                     if (wr_reg == dec.rs2) val_rs2 = wr_val;
                     if (wr_reg == dec.rd)  val_rd  = wr_val;
                 }
+            }
+
+            // Front-End Hardware Stack Engine:
+            // Absorb SP additions/subtractions in ID, updating regs_[SP] immediately.
+            // Eliminates ALU contention and avoids RAW hazard delay for subsequent SP accesses.
+            if (StackEngine::isSpAdjustment(dec)) {
+                word_t new_sp = stack_engine_.updateInDecode(dec, val_rs1);
+                regs_[SP] = new_sp;
+                val_rd = new_sp;
+                dec.opcode = OP_NOP; // Absorbed in front-end; ALU freed from pointer arithmetic
+                metrics_.stack_engine_resolutions++;
             }
 
             // Early Branch Resolution in ID for Unconditional Branches (B, CALL)
@@ -752,6 +770,15 @@ bool CPUPipeline::step6StageCycle() {
                     if (wr_reg == dec.rs2) val_rs2 = wr_val;
                     if (wr_reg == dec.rd)  val_rd  = wr_val;
                 }
+            }
+
+            // Front-End Hardware Stack Engine (6-Stage Pipeline):
+            if (StackEngine::isSpAdjustment(dec)) {
+                word_t new_sp = stack_engine_.updateInDecode(dec, val_rs1);
+                regs_[SP] = new_sp;
+                val_rd = new_sp;
+                dec.opcode = OP_NOP; // Absorbed in front-end; ALU freed from pointer arithmetic
+                metrics_.stack_engine_resolutions++;
             }
 
             // Early Branch Resolution in OF for Unconditional Branches (B, CALL)

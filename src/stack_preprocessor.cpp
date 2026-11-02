@@ -38,12 +38,23 @@ std::vector<std::string> StackPreprocessor::expandPush(const std::string& args) 
         clean = clean.substr(1, clean.size() - 2);
     }
     std::vector<std::string> regs = splitTokens(clean, ',');
+    if (regs.empty()) return {};
+
     std::vector<std::string> expanded;
 
-    // Full-descending: push pushes each register by decrementing SP by 4 and storing at 0[sp]
-    for (const auto& r : regs) {
+    if (regs.size() == 1) {
+        // Single register push: standard full-descending
         expanded.push_back("sub sp, sp, 4");
-        expanded.push_back("st " + r + ", 0[sp]");
+        expanded.push_back("st " + regs[0] + ", 0[sp]");
+    } else {
+        // Multi-register push optimization (Solution 1: Consolidated Stack Frame Allocation)
+        // Subtract total bytes once, then store using positive indexed offsets
+        int total_bytes = static_cast<int>(regs.size() * 4);
+        expanded.push_back("sub sp, sp, " + std::to_string(total_bytes));
+        for (size_t i = 0; i < regs.size(); ++i) {
+            int offset = static_cast<int>((regs.size() - 1 - i) * 4);
+            expanded.push_back("st " + regs[i] + ", " + std::to_string(offset) + "[sp]");
+        }
     }
     return expanded;
 }
@@ -55,15 +66,24 @@ std::vector<std::string> StackPreprocessor::expandPop(const std::string& args) {
         clean = clean.substr(1, clean.size() - 2);
     }
     std::vector<std::string> regs = splitTokens(clean, ',');
+    if (regs.empty()) return {};
+
     std::vector<std::string> expanded;
 
-    // In stack pop, registers are popped in reverse order if multiple:
-    // e.g., push {r1, r2} pushed r1 then r2. Pop {r1, r2} pops r2 then r1.
-    std::reverse(regs.begin(), regs.end());
-
-    for (const auto& r : regs) {
-        expanded.push_back("ld " + r + ", 0[sp]");
+    if (regs.size() == 1) {
+        // Single register pop
+        expanded.push_back("ld " + regs[0] + ", 0[sp]");
         expanded.push_back("add sp, sp, 4");
+    } else {
+        // Multi-register pop optimization (Solution 1: Consolidated Stack Frame Deallocation)
+        // Pop in reverse order (LIFO) using indexed offsets, then adjust SP once
+        int total_bytes = static_cast<int>(regs.size() * 4);
+        std::reverse(regs.begin(), regs.end());
+        for (size_t i = 0; i < regs.size(); ++i) {
+            int offset = static_cast<int>(i * 4);
+            expanded.push_back("ld " + regs[i] + ", " + std::to_string(offset) + "[sp]");
+        }
+        expanded.push_back("add sp, sp, " + std::to_string(total_bytes));
     }
     return expanded;
 }
