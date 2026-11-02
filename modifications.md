@@ -24,6 +24,7 @@ This document records all architectural enhancements, advanced arithmetic circui
 17. [Horizontal Microprogrammed Control Unit (64-Bit Direct Gate Drive)](#17-horizontal-microprogrammed-control-unit-64-bit-direct-gate-drive)
 18. [Full-Descending Stack Preprocessor, Memory Visualizer & Interactive CLI Debugger](#18-full-descending-stack-preprocessor-memory-visualizer--interactive-cli-debugger)
 19. [Architectural Trade-Off & Comprehensive Performance Review](#19-architectural-trade-off--comprehensive-performance-review)
+20. [Microprogrammed Control Unit Telemetry, Exception Trapping & Opcode Parity](#20-microprogrammed-control-unit-telemetry-exception-trapping--opcode-parity)
 
 ---
 
@@ -418,3 +419,50 @@ Alongside the 45-bit Vertical Micro-CU (Sarangi Chapter 9), an unencoded 64-bit 
 | **Store Buffer & Store Forwarding** | Memory Hierarchy | 4-entry associative FIFO register queue | Eliminates memory access latency on RAW stack store-load sequences | **High Payoff**: Accelerates subroutine prologue/epilogue sequences. |
 | **Dynamic 2-Bit BTB Predictor** | Branch Unit | 64-entry target memory + 2-bit saturating counter array | Slashes loop branch penalties from 2–3 cycles to **0 cycles** | **Crucial**: Delivers +35% higher throughput on loop workloads. |
 | **Horizontal Micro-CU** | Control Store | 64-bit unencoded ROM (larger silicon footprint by ~30%) | Eliminates micro-decoder unit; cuts execution from 10 to 5.5 micro-cycles | **High Speed**: 1.81x faster micro-retirement than Vertical CU. |
+
+---
+
+## 20. Microprogrammed Control Unit Telemetry, Exception Trapping & Opcode Parity
+
+This section documents microarchitectural optimizations applied to both the **Vertical** and **Horizontal** Microprogrammed Control Units.
+
+### Vertical Control Unit (`vertical_control_unit.cpp` / `vertical_control_unit.hpp`)
+
+#### OPT-024: Telemetry Counters + `dumpControlState()`
+- Added `uint64_t total_micro_cycles_` and `uint64_t instructions_retired_` as private members.
+- `total_micro_cycles_` is incremented at the top of every `stepMicroCycle()` call.
+- `instructions_retired_` is incremented whenever `stepMicroCycle()` returns `true` (uPC resets to 0).
+- Added public accessors: `getTotalMicroCycles()`, `getInstructionsRetired()`, and `getMicroCPI()`.
+- Added `dumpControlState()` which prints a summary table including uPC, PC, shared bus, flags, total micro-cycles, instructions retired, CPI, and control word width (45-bit encoded).
+- Telemetry counters are reset to zero in `reset()`.
+
+#### OPT-025: Hardware Exception Trapping in Vertical `stepMicroCycle()`
+- Added private fields: `has_exception_`, `exception_msg_`, `faulting_pc_`, `faulting_upc_`.
+- Added public accessors: `hasException()`, `getExceptionMessage()`, `getFaultingPC()`, `getFaultingUPC()`, `clearException()`.
+- The ALU call inside the `MMOV` → `ALU_RESULT` path is wrapped in a `try/catch` block catching both `SimpleRISCException` and `std::exception`.
+- On exception: sets exception fields, resets `upc_` to 0, increments `instructions_retired_`, and returns `true` (graceful retirement of faulting instruction).
+- Exception state is reset to clean values in `reset()`.
+
+#### OPT-026: Missing `NOT` Opcode in Vertical Microcode
+- Added `emitUnaryOp(OP_NOT, ALUOp::NOT)` after the existing `OP_D2I` unary entry.
+- `NOT` is a unary operation (reads `rs1`, writes `rd`), handled by the existing `emitUnaryOp` lambda which emits the minimal 6-microinstruction sequence without an operand-B fetch step.
+- This brings the vertical CU to full 24-opcode parity with the horizontal CU.
+
+---
+
+### Horizontal Control Unit (`horizontal_control_unit.cpp` / `horizontal_control_unit.hpp`)
+
+#### OPT-027: Added FDIV, I2D, D2I Support + Dedicated `addUnaryRoutine`
+- Added `addAluRoutine(OP_FDIV, ALUOp::FDIV, "FDIV")` to complete the 3-step binary ALU routine set.
+- Introduced a new `addUnaryRoutine` lambda (2-step: A ← rs1, then ALU trigger + rf_write) for unary operations `OP_I2D` and `OP_D2I` that have no second operand, avoiding a spurious B-load step.
+- Verified `OP_NOT` is already correctly handled via `addAluRoutine(OP_NOT, ALUOp::NOT, "NOT")`.
+- This brings horizontal CU to full 24-opcode parity with the vertical CU.
+
+#### OPT-028: Horizontal Exception Trapping + `instructions_retired_` Telemetry
+- Added private fields: `has_exception_`, `exception_msg_`, `faulting_pc_`, `faulting_upc_`, and `instructions_retired_`.
+- The `if (mi.alu_trigger)` block (ALU execution path) is wrapped in a `try/catch` catching `SimpleRISCException` and `std::exception`.
+- On exception: sets exception state, retires gracefully (upc_ ← 0, instructions_retired_++, return true).
+- `instructions_retired_` is incremented in every `RETURN_ZERO` sequencing path.
+- `total_micro_cycles_` is confirmed reset in `reset()`.
+- Added public accessors: `getInstructionsRetired()`, `getMicroCPI()`, `hasException()`, `getExceptionMessage()`, `getFaultingPC()`, `getFaultingUPC()`, `clearException()`.
+- Updated `dumpControlState()` to display instructions retired and CPI.

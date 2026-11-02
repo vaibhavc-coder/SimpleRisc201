@@ -20,6 +20,13 @@ void HorizontalControlUnit::reset() {
     upc_ = 0;
     shared_bus_ = 0;
     total_micro_cycles_ = 0;
+    instructions_retired_ = 0;
+
+    // Reset exception state
+    has_exception_ = false;
+    exception_msg_.clear();
+    faulting_pc_ = 0;
+    faulting_upc_ = 0;
 }
 
 void HorizontalControlUnit::loadProgram(const std::vector<word_t>& words, addr_t start_pc) {
@@ -125,6 +132,40 @@ void HorizontalControlUnit::initHorizontalMicrocode() {
     addAluRoutine(OP_LSL, ALUOp::LSL, "LSL");
     addAluRoutine(OP_LSR, ALUOp::LSR, "LSR");
     addAluRoutine(OP_ASR, ALUOp::ASR, "ASR");
+    addAluRoutine(OP_FDIV, ALUOp::FDIV, "FDIV");
+
+    // =========================================================================
+    // Unary Routines: I2D and D2I (single-source, no second operand)
+    // =========================================================================
+    auto addUnaryRoutine = [&](Opcode op, ALUOp alu_op, const std::string& name) {
+        upc_t start = static_cast<upc_t>(horizontal_rom_.size());
+        opcode_switch_table_[op] = start;
+
+        // Step 1: Read RS1 and load into Operand A
+        {
+            HorizontalMicroInstruction mi;
+            mi.regVal_out = true;
+            mi.A_in = true;
+            mi.seq_op = HorizontalMicroInstruction::SeqOp::NEXT;
+            mi.micro_comment = name + ": A <- [rs1]";
+            horizontal_rom_.push_back(mi);
+        }
+        // Step 2: Trigger ALU (unary) and write back result to destination register RD
+        {
+            HorizontalMicroInstruction mi;
+            mi.alu_trigger = true;
+            mi.alu_op = alu_op;
+            mi.aluResult_out = true;
+            mi.regData_in = true;
+            mi.rf_write = true;
+            mi.seq_op = HorizontalMicroInstruction::SeqOp::RETURN_ZERO;
+            mi.micro_comment = name + ": rd <- alu_res(A), retire instruction";
+            horizontal_rom_.push_back(mi);
+        }
+    };
+
+    addUnaryRoutine(OP_I2D, ALUOp::I2D, "I2D");
+    addUnaryRoutine(OP_D2I, ALUOp::D2I, "D2I");
 
     // CMP Handler: does not write back to RD, only updates condition flags
     {
@@ -345,10 +386,29 @@ bool HorizontalControlUnit::stepMicroCycle() {
         } else {
             word_t a = internal_regs_[static_cast<size_t>(InternalReg::A)];
             word_t b = (decoded.I) ? decoded.immx : internal_regs_[static_cast<size_t>(InternalReg::B)];
-            ALUResult res = ALU::execute(mi.alu_op, a, b, flags_);
-            internal_regs_[static_cast<size_t>(InternalReg::ALU_RESULT)] = res.result;
-            if (mi.alu_op == ALUOp::CMP) {
-                flags_ = res.flags;
+            try {
+                ALUResult res = ALU::execute(mi.alu_op, a, b, flags_);
+                internal_regs_[static_cast<size_t>(InternalReg::ALU_RESULT)] = res.result;
+                if (mi.alu_op == ALUOp::CMP) {
+                    flags_ = res.flags;
+                }
+            } catch (const SimpleRISCException& ex) {
+                has_exception_ = true;
+                exception_msg_ = ex.what();
+                faulting_pc_ = pc_;
+                faulting_upc_ = upc_;
+                // Retire the faulting instruction gracefully
+                upc_ = 0;
+                instructions_retired_++;
+                return true;
+            } catch (const std::exception& ex) {
+                has_exception_ = true;
+                exception_msg_ = ex.what();
+                faulting_pc_ = pc_;
+                faulting_upc_ = upc_;
+                upc_ = 0;
+                instructions_retired_++;
+                return true;
             }
         }
     }
@@ -395,10 +455,12 @@ bool HorizontalControlUnit::stepMicroCycle() {
             }
             upc_ = 0;
             instruction_retired = true;
+            instructions_retired_++;
             break;
         default:
             upc_ = 0;
             instruction_retired = true;
+            instructions_retired_++;
             break;
     }
 
@@ -426,6 +488,9 @@ std::string HorizontalControlUnit::dumpControlState() const {
         << " | Total uCycles: " << std::dec << total_micro_cycles_ << " |\n";
     oss << "| Flags: [E=" << flags_.E << " GT=" << flags_.GT << " C=" << flags_.C << " V=" << flags_.V << "] "
         << "| Control Word Width: 64 bits (Unencoded Direct Gate Drive)     |\n";
+    double cpi = getMicroCPI();
+    oss << "| Instructions Retired: " << instructions_retired_
+        << " | CPI: " << std::fixed << std::setprecision(2) << cpi << "                                          |\n";
     oss << "+-----------------------------------------------------------------------------+\n";
     return oss.str();
 }

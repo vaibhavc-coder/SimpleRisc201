@@ -20,6 +20,16 @@ void VerticalControlUnit::reset() {
     upc_ = 0;
     shared_bus_ = 0;
     signals_ = BusSignals{};
+
+    // Reset telemetry
+    total_micro_cycles_ = 0;
+    instructions_retired_ = 0;
+
+    // Reset exception state
+    has_exception_ = false;
+    exception_msg_.clear();
+    faulting_pc_ = 0;
+    faulting_upc_ = 0;
 }
 
 void VerticalControlUnit::loadProgram(const std::vector<word_t>& words, addr_t start_pc) {
@@ -143,7 +153,7 @@ void VerticalControlUnit::initMicrocode() {
     emitAluOp(OP_ASR, ALUOp::ASR);
     emitAluOp(OP_FDIV, ALUOp::FDIV);
 
-    // Unary Conversion Routines: I2D and D2I
+    // Unary Conversion Routines: I2D, D2I, and NOT
     auto emitUnaryOp = [&](Opcode op, ALUOp alu_op) {
         uint16_t start = static_cast<uint16_t>(micro_rom_.size());
         opcode_switch_table_[op] = start;
@@ -156,6 +166,7 @@ void VerticalControlUnit::initMicrocode() {
     };
     emitUnaryOp(OP_I2D, ALUOp::I2D);
     emitUnaryOp(OP_D2I, ALUOp::D2I);
+    emitUnaryOp(OP_NOT, ALUOp::NOT);
 
     // CMP
     {
@@ -291,8 +302,12 @@ void VerticalControlUnit::initMicrocode() {
 }
 
 bool VerticalControlUnit::stepMicroCycle() {
+    // Telemetry: count every micro-cycle
+    total_micro_cycles_++;
+
     if (upc_ >= micro_rom_.size()) {
         upc_ = 0;
+        instructions_retired_++;
         return true;
     }
 
@@ -358,14 +373,32 @@ bool VerticalControlUnit::stepMicroCycle() {
                 signals_.alu_op = op;
                 word_t a = internal_regs_[static_cast<size_t>(InternalReg::A)];
                 word_t b = internal_regs_[static_cast<size_t>(InternalReg::B)];
-                ALUResult alu_res = ALU::execute(op, a, b, flags_);
-                shared_bus_ = alu_res.result;
-                internal_regs_[static_cast<size_t>(InternalReg::ALU_RESULT)] = alu_res.result;
+                try {
+                    ALUResult alu_res = ALU::execute(op, a, b, flags_);
+                    shared_bus_ = alu_res.result;
+                    internal_regs_[static_cast<size_t>(InternalReg::ALU_RESULT)] = alu_res.result;
 
-                if (op == ALUOp::CMP) {
-                    internal_regs_[static_cast<size_t>(InternalReg::FLAGS_E)]  = alu_res.flags.E ? 1 : 0;
-                    internal_regs_[static_cast<size_t>(InternalReg::FLAGS_GT)] = alu_res.flags.GT ? 1 : 0;
-                    flags_ = alu_res.flags;
+                    if (op == ALUOp::CMP) {
+                        internal_regs_[static_cast<size_t>(InternalReg::FLAGS_E)]  = alu_res.flags.E ? 1 : 0;
+                        internal_regs_[static_cast<size_t>(InternalReg::FLAGS_GT)] = alu_res.flags.GT ? 1 : 0;
+                        flags_ = alu_res.flags;
+                    }
+                } catch (const SimpleRISCException& ex) {
+                    has_exception_ = true;
+                    exception_msg_ = ex.what();
+                    faulting_pc_ = pc_;
+                    faulting_upc_ = upc_;
+                    upc_ = 0;
+                    instructions_retired_++;
+                    return true;
+                } catch (const std::exception& ex) {
+                    has_exception_ = true;
+                    exception_msg_ = ex.what();
+                    faulting_pc_ = pc_;
+                    faulting_upc_ = upc_;
+                    upc_ = 0;
+                    instructions_retired_++;
+                    return true;
                 }
             } else if (mi.dest == InternalReg::MAR && mi.args == static_cast<uint16_t>(ALUOp::ADD)) {
                 word_t a = internal_regs_[static_cast<size_t>(InternalReg::A)];
@@ -427,7 +460,11 @@ bool VerticalControlUnit::stepMicroCycle() {
     }
 
     upc_ = next_upc;
-    return (upc_ == 0);
+    bool retired = (upc_ == 0);
+    if (retired) {
+        instructions_retired_++;
+    }
+    return retired;
 }
 
 uint32_t VerticalControlUnit::stepInstruction() {
@@ -474,6 +511,24 @@ std::string VerticalControlUnit::dumpMicroinstruction(upc_t addr) const {
         case MicroOp::MB:       ss << "mb -> target " << mi.branch_target; break;
     }
     return ss.str();
+}
+
+std::string VerticalControlUnit::dumpControlState() const {
+    std::ostringstream oss;
+    oss << "+-----------------------------------------------------------------------------+\n";
+    oss << "|           VERTICAL MICROPROGRAMMED CONTROL UNIT STATE (Sarangi Ch 9)       |\n";
+    oss << "+-----------------------------------------------------------------------------+\n";
+    oss << "| uPC: " << std::dec << std::setw(3) << upc_
+        << " | PC: 0x" << std::hex << std::setw(8) << std::setfill('0') << pc_
+        << " | Bus: 0x" << std::setw(8) << std::setfill('0') << shared_bus_
+        << " | Total uCycles: " << std::dec << total_micro_cycles_ << " |\n";
+    oss << "| Flags: [E=" << flags_.E << " GT=" << flags_.GT << " C=" << flags_.C << " V=" << flags_.V << "]"
+        << " | Instructions Retired: " << instructions_retired_ << " |\n";
+    double cpi = getMicroCPI();
+    oss << "| CPI: " << std::fixed << std::setprecision(2) << cpi
+        << " | Control Word Width: 45 bits (Encoded, Gate Decode Required)              |\n";
+    oss << "+-----------------------------------------------------------------------------+\n";
+    return oss.str();
 }
 
 } // namespace simplerisc
