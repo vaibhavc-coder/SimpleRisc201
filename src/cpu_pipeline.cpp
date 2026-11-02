@@ -533,6 +533,7 @@ bool CPUPipeline::step6StageCycle() {
     bool stall_6stage = false;
     bool branch_taken = false;
     addr_t branch_target = 0;
+    bool branch_resolved_in_of = false;
 
     // ------------------------------------------------------------------------
     // STAGE 6: REGISTER WRITEBACK (RW)
@@ -650,25 +651,48 @@ bool CPUPipeline::step6StageCycle() {
         }
 
         branch_target = of_ex_.inst.branch_target;
-        if (of_ex_.inst.opcode == OP_BEQ) branch_taken = flags_.E;
-        else if (of_ex_.inst.opcode == OP_BGT) branch_taken = flags_.GT;
-        else if (of_ex_.inst.opcode == OP_B || of_ex_.inst.opcode == OP_CALL) branch_taken = true;
-        else if (of_ex_.inst.opcode == OP_RET) {
-            branch_taken = true;
-            branch_target = regs_[RA];
+        if (of_ex_.inst.opcode == OP_BEQ || of_ex_.inst.opcode == OP_BGT) {
+            bool cond_met = (of_ex_.inst.opcode == OP_BEQ) ? flags_.E : flags_.GT;
+            addr_t actual_target = of_ex_.inst.branch_target;
+            metrics_.branch_predictions++;
+            updateBranchPredictor(of_ex_.pc, cond_met, actual_target);
+
+            if (cond_met == of_ex_.predicted_taken && (!cond_met || of_ex_.predicted_target == actual_target)) {
+                // Correct branch prediction! 0 penalty bubbles
+                metrics_.branch_prediction_hits++;
+                branch_taken = false;
+            } else {
+                // Misprediction penalty
+                branch_taken = true;
+                branch_target = cond_met ? actual_target : of_ex_.fallthrough_pc;
+                last_flush_ = true;
+                metrics_.branch_flushes++;
+                pc_ = branch_target;
+            }
+        } else if (of_ex_.inst.opcode == OP_RET) {
+            addr_t actual_target = regs_[RA];
             if (ex_ma_.valid && !ex_ma_.bubble && (ex_ma_.inst.writesRd() || ex_ma_.inst.opcode == OP_CALL) && (ex_ma_.inst.opcode == OP_CALL ? RA : ex_ma_.inst.rd) == RA) {
-                branch_target = (ex_ma_.inst.opcode == OP_CALL) ? (ex_ma_.pc + 4) : (ex_ma_.inst.isLoad() ? readMemory(ex_ma_.alu_result) : ex_ma_.alu_result);
+                actual_target = (ex_ma_.inst.opcode == OP_CALL) ? (ex_ma_.pc + 4) : (ex_ma_.inst.isLoad() ? readMemory(ex_ma_.alu_result) : ex_ma_.alu_result);
                 metrics_.forwarding_events++;
             } else if (ma_rw_.valid && !ma_rw_.bubble && (ma_rw_.inst.writesRd() || ma_rw_.inst.opcode == OP_CALL) && (ma_rw_.inst.opcode == OP_CALL ? RA : ma_rw_.inst.rd) == RA) {
-                branch_target = (ma_rw_.inst.opcode == OP_CALL) ? (ma_rw_.pc + 4) : ma_rw_.write_data;
+                actual_target = (ma_rw_.inst.opcode == OP_CALL) ? (ma_rw_.pc + 4) : ma_rw_.write_data;
                 metrics_.forwarding_events++;
             }
-        }
-
-        if (branch_taken) {
-            last_flush_ = true;
-            metrics_.branch_flushes++;
-            pc_ = branch_target;
+            metrics_.branch_predictions++;
+            if (of_ex_.ras_predicted && of_ex_.predicted_target == actual_target) {
+                // RAS Return Prediction Hit! 0 Penalty Bubbles!
+                metrics_.ras_hits++;
+                metrics_.branch_prediction_hits++;
+                branch_taken = false;
+                last_flush_ = false;
+            } else {
+                // RAS Miss or unpredicted return
+                branch_taken = true;
+                branch_target = actual_target;
+                last_flush_ = true;
+                metrics_.branch_flushes++;
+                pc_ = branch_target;
+            }
         }
 
         next_ex_ma.pc = of_ex_.pc;
@@ -730,11 +754,36 @@ bool CPUPipeline::step6StageCycle() {
                 }
             }
 
+            // Early Branch Resolution in OF for Unconditional Branches (B, CALL)
+            if (dec.opcode == OP_CALL) {
+                ras_.push(if2_of_.pc + 4);
+            }
+
+            if (dec.opcode == OP_B || dec.opcode == OP_CALL) {
+                addr_t target = dec.branch_target;
+                metrics_.branch_predictions++;
+                updateBranchPredictor(if2_of_.pc, true, target);
+
+                if (!if2_of_.predicted_taken || if2_of_.predicted_target != target) {
+                    branch_resolved_in_of = true;
+                    last_flush_ = true;
+                    metrics_.branch_flushes++;
+                    metrics_.early_branch_resolutions++;
+                    pc_ = target;
+                } else {
+                    metrics_.branch_prediction_hits++;
+                }
+            }
+
             next_of_ex.pc = if2_of_.pc;
             next_of_ex.inst = dec;
             next_of_ex.val_rs1 = val_rs1;
             next_of_ex.val_rs2 = val_rs2;
             next_of_ex.val_rd = val_rd;
+            next_of_ex.predicted_taken = if2_of_.predicted_taken;
+            next_of_ex.predicted_target = if2_of_.predicted_target;
+            next_of_ex.fallthrough_pc = if2_of_.fallthrough_pc;
+            next_of_ex.ras_predicted = if2_of_.ras_predicted;
             next_of_ex.valid = true;
             next_of_ex.bubble = false;
         }
@@ -743,7 +792,7 @@ bool CPUPipeline::step6StageCycle() {
     // ------------------------------------------------------------------------
     // STAGE 2: INSTRUCTION FETCH 2 (IF2: MEMORY / I-CACHE ACCESS)
     // ------------------------------------------------------------------------
-    if (branch_taken) {
+    if (branch_taken || branch_resolved_in_of) {
         next_if2_of.valid = false;
         next_if2_of.bubble = true;
     } else if (stall_6stage) {
@@ -761,8 +810,23 @@ bool CPUPipeline::step6StageCycle() {
 
         next_if2_of.pc = if1_if2_.pc;
         next_if2_of.raw_inst = raw;
+        next_if2_of.predicted_taken = if1_if2_.predicted_taken;
+        next_if2_of.predicted_target = if1_if2_.predicted_target;
+        next_if2_of.fallthrough_pc = if1_if2_.fallthrough_pc;
+        next_if2_of.ras_predicted = false;
         next_if2_of.valid = true;
         next_if2_of.bubble = false;
+
+        // Speculative Return Address Stack (RAS) Check for 'ret'
+        Opcode op = static_cast<Opcode>((raw >> 27) & 0x1F);
+        if (op == OP_RET && !ras_.empty()) {
+            addr_t pred_ret = ras_.pop();
+            next_if2_of.ras_predicted = true;
+            next_if2_of.predicted_target = pred_ret;
+            next_if2_of.predicted_taken = true;
+            next_if2_of.fallthrough_pc = if1_if2_.pc + 4;
+            pc_ = pred_ret;
+        }
     } else {
         next_if2_of.valid = false;
         next_if2_of.bubble = true;
@@ -771,17 +835,26 @@ bool CPUPipeline::step6StageCycle() {
     // ------------------------------------------------------------------------
     // STAGE 1: INSTRUCTION FETCH 1 (IF1: PC GENERATION & ADDRESS SETUP)
     // ------------------------------------------------------------------------
-    if (branch_taken) {
+    if (branch_taken || branch_resolved_in_of) {
         next_if1_if2.valid = false;
         next_if1_if2.bubble = true;
     } else if (stall_6stage) {
         next_if1_if2 = if1_if2_;
     } else {
         if (pc_ < text_end_) {
+            auto pred = queryBranchPredictor(pc_);
             next_if1_if2.pc = pc_;
+            next_if1_if2.predicted_taken = pred.first;
+            next_if1_if2.predicted_target = pred.second;
+            next_if1_if2.fallthrough_pc = pc_ + 4;
             next_if1_if2.valid = true;
             next_if1_if2.bubble = false;
-            pc_ += 4;
+
+            if (pred.first) {
+                pc_ = pred.second;
+            } else {
+                pc_ += 4;
+            }
         } else {
             next_if1_if2.valid = false;
             next_if1_if2.bubble = true;

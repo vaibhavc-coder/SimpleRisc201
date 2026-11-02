@@ -344,6 +344,7 @@ void testDatapathOptimizations() {
     assert(pipe6.getRegister(3) == 150);
     assert(pipe6.getRegister(4) == 77);
     assert(pipe6.getMetrics().store_load_forwards >= 1);
+    assert(pipe6.getMetrics().ras_hits >= 1);
 
     std::cout << pipe4.dumpRegisters();
     std::cout << pipe4.getMetrics().dump();

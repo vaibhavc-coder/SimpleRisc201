@@ -314,6 +314,9 @@ struct Latch_MEM_WB {
 // ----------------------------------------------------------------------------
 struct Latch_IF1_IF2 {
     addr_t pc{0};
+    bool predicted_taken{false};
+    addr_t predicted_target{0};
+    addr_t fallthrough_pc{0};
     bool valid{false};
     bool bubble{false};
 };
@@ -321,6 +324,10 @@ struct Latch_IF1_IF2 {
 struct Latch_IF2_OF {
     addr_t pc{0};
     word_t raw_inst{0};
+    bool predicted_taken{false};
+    addr_t predicted_target{0};
+    addr_t fallthrough_pc{0};
+    bool ras_predicted{false};
     bool valid{false};
     bool bubble{false};
 };
@@ -331,6 +338,10 @@ struct Latch_OF_EX {
     word_t val_rs1{0};
     word_t val_rs2{0};
     word_t val_rd{0};
+    bool predicted_taken{false};
+    addr_t predicted_target{0};
+    addr_t fallthrough_pc{0};
+    bool ras_predicted{false};
     bool valid{false};
     bool bubble{false};
 };
