@@ -16,7 +16,7 @@ namespace simplerisc {
 
 enum class PipelineMode {
     FOUR_STAGE,       // 4-Stage: IF -> ID/RR -> EX -> MEM/WB
-    SIX_STAGE,        // 6-Stage Super-Pipeline: IF1 -> IF2 -> ID -> RR -> EX -> WB
+    SIX_STAGE,        // 6-Stage Super-Pipeline: IF1 -> IF2 -> OF -> EX -> MA -> RW
     MICROPROGRAMMED   // Microprogrammed Shared-Bus Model (Sarangi Ch. 9)
 };
 
@@ -310,7 +310,7 @@ struct Latch_MEM_WB {
 };
 
 // ----------------------------------------------------------------------------
-// 6-Stage Super-Pipeline Inter-Stage Registers
+// 6-Stage Super-Pipeline Inter-Stage Registers (IF1 -> IF2 -> OF -> EX -> MA -> RW)
 // ----------------------------------------------------------------------------
 struct Latch_IF1_IF2 {
     addr_t pc{0};
@@ -318,26 +318,40 @@ struct Latch_IF1_IF2 {
     bool bubble{false};
 };
 
-struct Latch_IF2_ID {
+struct Latch_IF2_OF {
     addr_t pc{0};
     word_t raw_inst{0};
     bool valid{false};
     bool bubble{false};
 };
 
-struct Latch_ID_RR {
-    addr_t pc{0};
-    Instruction inst;
-    bool valid{false};
-    bool bubble{false};
-};
-
-struct Latch_RR_EX {
+struct Latch_OF_EX {
     addr_t pc{0};
     Instruction inst;
     word_t val_rs1{0};
     word_t val_rs2{0};
     word_t val_rd{0};
+    bool valid{false};
+    bool bubble{false};
+};
+
+struct Latch_EX_MA {
+    addr_t pc{0};
+    Instruction inst;
+    word_t alu_result{0};
+    word_t store_data{0};
+    bool branch_taken{false};
+    addr_t branch_target{0};
+    ForwardSource fwd_a{ForwardSource::NONE};
+    ForwardSource fwd_b{ForwardSource::NONE};
+    bool valid{false};
+    bool bubble{false};
+};
+
+struct Latch_MA_RW {
+    addr_t pc{0};
+    Instruction inst;
+    word_t write_data{0};
     bool valid{false};
     bool bubble{false};
 };
@@ -433,13 +447,12 @@ private:
     Latch_EX_MEM ex_mem_;
     Latch_MEM_WB mem_wb_;
 
-    // 6-Stage Latches
+    // 6-Stage Latches (IF1 -> IF2 -> OF -> EX -> MA -> RW)
     Latch_IF1_IF2 if1_if2_;
-    Latch_IF2_ID  if2_id_;
-    Latch_ID_RR   id_rr_;
-    Latch_RR_EX   rr_ex_;
-    Latch_EX_MEM  ex_mem6_;
-    Latch_MEM_WB  mem_wb6_;
+    Latch_IF2_OF  if2_of_;
+    Latch_OF_EX   of_ex_;
+    Latch_EX_MA   ex_ma_;
+    Latch_MA_RW   ma_rw_;
 
     // Hazard & Forwarding Telemetry State
     bool last_stall_{false};

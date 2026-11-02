@@ -254,6 +254,12 @@ void testPipelinedProcessor() {
     std::cout << pipe6.dumpRegisters();
     std::cout << pipe6.getMetrics().dump();
 
+    assert(pipe6.getRegister(1) == 15);
+    assert(pipe6.getRegister(2) == 25);
+    assert(pipe6.getRegister(3) == 40);
+    assert(pipe6.getRegister(4) == 25);
+    assert(pipe6.getRegister(5) == 35);
+    assert(pipe6.getRegister(6) == 35);
     assert(pipe6.getRegister(7) == 40);
     assert(pipe6.getRegister(8) == 0);
     assert(pipe6.getRegister(9) == 50);
@@ -316,84 +322,174 @@ void testDatapathOptimizations() {
     auto res = asm_tool.assemble(test_code);
     assert(res.success);
 
-    CPUPipeline pipe(PipelineMode::FOUR_STAGE);
-    pipe.loadProgram(res.machine_words, 0);
-    pipe.run(50);
+    // Verify on 4-Stage Pipeline
+    CPUPipeline pipe4(PipelineMode::FOUR_STAGE);
+    pipe4.loadProgram(res.machine_words, 0);
+    pipe4.run(50);
 
-    std::cout << pipe.dumpRegisters();
-    std::cout << pipe.getMetrics().dump();
+    assert(pipe4.getRegister(1) == 100);
+    assert(pipe4.getRegister(2) == 100);
+    assert(pipe4.getRegister(3) == 150);
+    assert(pipe4.getRegister(4) == 77);
+    assert(pipe4.getMetrics().store_load_forwards >= 1);
+    assert(pipe4.getMetrics().ras_hits >= 1);
 
-    assert(pipe.getRegister(1) == 100);
-    assert(pipe.getRegister(2) == 100);
-    assert(pipe.getRegister(3) == 150);
-    assert(pipe.getRegister(4) == 77);
-    assert(pipe.getMetrics().store_load_forwards >= 1);
-    assert(pipe.getMetrics().ras_hits >= 1);
+    // Verify on 6-Stage Super-Pipeline
+    CPUPipeline pipe6(PipelineMode::SIX_STAGE);
+    pipe6.loadProgram(res.machine_words, 0);
+    pipe6.run(50);
 
-    std::cout << "[PASS] Advanced Datapath Optimizations (RAS, Store-Forward, L1 Caches) Verified!\n";
+    assert(pipe6.getRegister(1) == 100);
+    assert(pipe6.getRegister(2) == 100);
+    assert(pipe6.getRegister(3) == 150);
+    assert(pipe6.getRegister(4) == 77);
+    assert(pipe6.getMetrics().store_load_forwards >= 1);
+
+    std::cout << pipe4.dumpRegisters();
+    std::cout << pipe4.getMetrics().dump();
+    std::cout << "[PASS] Advanced Datapath Optimizations Verified on both 4-Stage & 6-Stage Pipelines!\n";
 }
 
 int main(int argc, char* argv[]) {
-    // Check if CLI interactive debugger mode requested
+    std::string mode_str = "both";
+    std::string file_path = "";
+    bool run_tests = true;
+    bool interactive = false;
+
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
-        if (arg == "--cli" || arg == "-i" || arg == "--debugger") {
-            CPUPipeline pipeline(PipelineMode::FOUR_STAGE);
-            // If a file is also passed, load it
-            if (i + 1 < argc && argv[i + 1][0] != '-') {
-                Assembler a;
-                AssemblyResult r = a.assembleFile(argv[i + 1]);
-                if (r.success) {
-                    pipeline.loadProgram(r.machine_words, 0);
-                    std::cout << "Loaded program " << argv[i + 1] << " (" << r.machine_words.size() << " instructions)\n";
-                }
-            }
-            DebuggerCLI dbg(pipeline);
-            dbg.runInteractive();
+        if (arg == "--help" || arg == "-h") {
+            std::cout << "Usage: ./simplerisc_sim.exe [options] [file.s]\n\n"
+                      << "Options:\n"
+                      << "  --cli, -i, --debugger       Launch interactive CLI debugger\n"
+                      << "  --mode, -m <4|6|both>       Set pipeline execution mode (default: both)\n"
+                      << "  --no-tests                  Skip verification test suites and run file/CLI directly\n"
+                      << "  --help, -h                  Display this help message\n\n"
+                      << "Sample Programs:\n"
+                      << "  ./simplerisc_sim.exe programs/demo.s\n"
+                      << "  ./simplerisc_sim.exe --mode 6 programs/test_hazards.s\n"
+                      << "  ./simplerisc_sim.exe --cli programs/test_stack_macros.s\n";
             return 0;
+        } else if (arg == "--cli" || arg == "-i" || arg == "--debugger") {
+            interactive = true;
+        } else if (arg == "--no-tests") {
+            run_tests = false;
+        } else if (arg == "--mode" || arg == "-m") {
+            if (i + 1 < argc) {
+                mode_str = argv[++i];
+            }
+        } else if (arg[0] != '-') {
+            file_path = arg;
         }
     }
 
-    std::cout << "===============================================================================\n";
-    std::cout << "   RISC201 COMPLETE INTEGRATED PROCESSOR SIMULATION & EVALUATION SUITE        \n";
-    std::cout << "   Computer Organization & Architecture (CSC-201) — Autumn 2026               \n";
-    std::cout << "   Reference: Smruti R. Sarangi (Basic Computer Architecture, Chapter 9)       \n";
-    std::cout << "===============================================================================\n";
+    if (interactive) {
+        PipelineMode pmode = PipelineMode::FOUR_STAGE;
+        if (mode_str == "6" || mode_str == "6stage") pmode = PipelineMode::SIX_STAGE;
+        CPUPipeline pipeline(pmode);
+        if (!file_path.empty()) {
+            StackPreprocessor prep;
+            PreprocessorReport pr = prep.processFile(file_path);
+            if (pr.success) {
+                Assembler a;
+                AssemblyResult r = a.assemble(pr.expanded_source);
+                if (r.success) {
+                    pipeline.loadProgram(r.machine_words, 0);
+                    std::cout << "Loaded program " << file_path << " (" << r.machine_words.size() << " instructions, " << pr.macros_expanded << " macros expanded)\n";
+                }
+            }
+        }
+        DebuggerCLI dbg(pipeline);
+        dbg.runInteractive();
+        return 0;
+    }
 
-    // 1. ALU verification
-    testALU();
+    if (run_tests) {
+        std::cout << "===============================================================================\n";
+        std::cout << "   RISC201 COMPLETE INTEGRATED PROCESSOR SIMULATION & EVALUATION SUITE        \n";
+        std::cout << "   Computer Organization & Architecture (CSC-201) — Autumn 2026               \n";
+        std::cout << "   Reference: Smruti R. Sarangi (Basic Computer Architecture, Chapter 9 & 10)  \n";
+        std::cout << "===============================================================================\n";
 
-    // 2. Stack Preprocessor & Disassembler
-    testStackPreprocessorAndDisassembler();
+        // 1. ALU verification
+        testALU();
 
-    // 3. Stack Visualizer & Runtime Exception Framework
-    testStackVisualizerAndExceptions();
+        // 2. Stack Preprocessor & Disassembler
+        testStackPreprocessorAndDisassembler();
 
-    // 4. Horizontal vs Vertical Microprogramming Comparison
-    testMicroprogrammedControllers();
+        // 3. Stack Visualizer & Runtime Exception Framework
+        testStackVisualizerAndExceptions();
 
-    // 5. 4-Stage vs 6-Stage Pipeline Hazard Forwarding & Stalls
-    testPipelinedProcessor();
+        // 4. Horizontal vs Vertical Microprogramming Comparison
+        testMicroprogrammedControllers();
 
-    // 6. Advanced Pipeline Datapath Optimizations (RAS, Store Forwarding, L1 Caches)
-    testDatapathOptimizations();
+        // 5. 4-Stage vs 6-Stage Pipeline Hazard Forwarding & Stalls
+        testPipelinedProcessor();
+
+        // 6. Advanced Pipeline Datapath Optimizations (RAS, Store Forwarding, L1 Caches)
+        testDatapathOptimizations();
+    }
 
     // If external source file passed:
-    if (argc >= 2 && argv[1][0] != '-') {
+    if (!file_path.empty()) {
         StackPreprocessor prep;
-        PreprocessorReport pr = prep.processFile(argv[1]);
+        PreprocessorReport pr = prep.processFile(file_path);
         if (pr.success) {
             Assembler a;
             AssemblyResult r = a.assemble(pr.expanded_source);
             if (r.success) {
                 std::cout << "\n=======================================================\n";
-                std::cout << " Running File: " << argv[1] << " (Expanded: " << pr.macros_expanded << " macros)\n";
+                std::cout << " Running File: " << file_path << " (Expanded: " << pr.macros_expanded << " macros)\n";
                 std::cout << "=======================================================\n";
-                CPUPipeline file_pipe(PipelineMode::FOUR_STAGE);
-                file_pipe.loadProgram(r.machine_words, 0);
-                file_pipe.run(50000);
-                std::cout << file_pipe.dumpRegisters();
-                std::cout << file_pipe.getMetrics().dump();
+
+                bool do_4stage = (mode_str == "4" || mode_str == "both" || mode_str == "4stage");
+                bool do_6stage = (mode_str == "6" || mode_str == "both" || mode_str == "6stage");
+
+                CPUPipeline pipe4(PipelineMode::FOUR_STAGE);
+                CPUPipeline pipe6(PipelineMode::SIX_STAGE);
+
+                if (do_4stage) {
+                    std::cout << "\n--- [4-STAGE PIPELINE EXECUTION: IF -> ID/RR -> EX -> MEM/WB] ---\n";
+                    pipe4.loadProgram(r.machine_words, 0);
+                    pipe4.run(50000);
+                    std::cout << pipe4.dumpRegisters();
+                    std::cout << pipe4.getMetrics().dump();
+                    if (pipe4.hasException()) {
+                        std::cout << " [HARDWARE EXCEPTION TRAPPED]: " << pipe4.getExceptionMessage() << "\n";
+                    }
+                }
+
+                if (do_6stage) {
+                    std::cout << "\n--- [6-STAGE SUPER-PIPELINE EXECUTION: IF1 -> IF2 -> OF -> EX -> MA -> RW] ---\n";
+                    pipe6.loadProgram(r.machine_words, 0);
+                    pipe6.run(50000);
+                    std::cout << pipe6.dumpRegisters();
+                    std::cout << pipe6.getMetrics().dump();
+                    if (pipe6.hasException()) {
+                        std::cout << " [HARDWARE EXCEPTION TRAPPED]: " << pipe6.getExceptionMessage() << "\n";
+                    }
+                }
+
+                if (do_4stage && do_6stage) {
+                    std::cout << "\n+-----------------------------------------------------------------------------------------------+\n";
+                    std::cout << "|                      ARCHITECTURAL COMPARATIVE PIPELINE EVALUATION                            |\n";
+                    std::cout << "+-----------------------+---------------+---------------+---------------+---------------+-------+\n";
+                    std::cout << "| Pipeline Model        | Clock Cycles  | Retired Inst  | Stalls/Flushes| CPI           | Speed |\n";
+                    std::cout << "+-----------------------+---------------+---------------+---------------+---------------+-------+\n";
+                    std::cout << "| 4-Stage Pipeline      | " << std::setw(13) << pipe4.getMetrics().total_cycles
+                              << " | " << std::setw(13) << pipe4.getMetrics().instructions_retired
+                              << " | " << std::setw(6) << pipe4.getMetrics().stall_cycles << " / " << std::setw(4) << pipe4.getMetrics().branch_flushes
+                              << " | " << std::fixed << std::setprecision(3) << std::setw(13) << pipe4.getMetrics().getCPI()
+                              << " | 1.00x |\n";
+
+                    double speed_ratio = pipe4.getMetrics().getCPI() / pipe6.getMetrics().getCPI();
+                    std::cout << "| 6-Stage Super-Pipeline| " << std::setw(13) << pipe6.getMetrics().total_cycles
+                              << " | " << std::setw(13) << pipe6.getMetrics().instructions_retired
+                              << " | " << std::setw(6) << pipe6.getMetrics().stall_cycles << " / " << std::setw(4) << pipe6.getMetrics().branch_flushes
+                              << " | " << std::fixed << std::setprecision(3) << std::setw(13) << pipe6.getMetrics().getCPI()
+                              << " | " << std::fixed << std::setprecision(2) << std::setw(5) << speed_ratio << "x |\n";
+                    std::cout << "+-----------------------------------------------------------------------------------------------+\n";
+                }
             }
         }
     }

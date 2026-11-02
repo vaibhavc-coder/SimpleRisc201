@@ -77,6 +77,10 @@ bool DebuggerCLI::executeCommand(const std::string& cmd_line, std::ostream& out)
                 break;
             }
             pipeline_.cycleStep();
+            if (pipeline_.hasException()) {
+                out << "[TRAP] Hardware Exception: " << pipeline_.getExceptionMessage() << "\n";
+                break;
+            }
             // Verify stack boundary safety on every cycle
             addr_t sp = pipeline_.getRegister(SP);
             addr_t pc = pipeline_.getPC();
@@ -101,6 +105,9 @@ bool DebuggerCLI::executeCommand(const std::string& cmd_line, std::ostream& out)
             out << "CPU is halted.\n";
         } else {
             pipeline_.macroStep();
+            if (pipeline_.hasException()) {
+                out << "[TRAP] Hardware Exception: " << pipeline_.getExceptionMessage() << "\n";
+            }
             printCurrentState(out);
         }
         return true;
@@ -112,6 +119,10 @@ bool DebuggerCLI::executeCommand(const std::string& cmd_line, std::ostream& out)
         while (!pipeline_.isHalted() && cycles < 1000000) {
             pipeline_.cycleStep();
             cycles++;
+            if (pipeline_.hasException()) {
+                out << "[TRAP] Hardware Exception after " << std::dec << cycles << " cycles: " << pipeline_.getExceptionMessage() << "\n";
+                break;
+            }
             addr_t sp = pipeline_.getRegister(SP);
             addr_t pc = pipeline_.getPC();
             if (!exceptions_.checkStackPointer(sp, pc, cycles)) {

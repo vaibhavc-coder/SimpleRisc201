@@ -76,11 +76,10 @@ void CPUPipeline::reset() {
     mem_wb_ = Latch_MEM_WB{};
 
     if1_if2_ = Latch_IF1_IF2{};
-    if2_id_ = Latch_IF2_ID{};
-    id_rr_ = Latch_ID_RR{};
-    rr_ex_ = Latch_RR_EX{};
-    ex_mem6_ = Latch_EX_MEM{};
-    mem_wb6_ = Latch_MEM_WB{};
+    if2_of_  = Latch_IF2_OF{};
+    of_ex_   = Latch_OF_EX{};
+    ex_ma_   = Latch_EX_MA{};
+    ma_rw_   = Latch_MA_RW{};
 
     last_stall_ = false;
     last_flush_ = false;
@@ -164,7 +163,7 @@ bool CPUPipeline::is4StageEmpty() const {
 }
 
 bool CPUPipeline::is6StageEmpty() const {
-    return !if1_if2_.valid && !if2_id_.valid && !id_rr_.valid && !rr_ex_.valid && !ex_mem6_.valid && !mem_wb6_.valid;
+    return !if1_if2_.valid && !if2_of_.valid && !of_ex_.valid && !ex_ma_.valid && !ma_rw_.valid;
 }
 
 // ============================================================================
@@ -246,12 +245,12 @@ bool CPUPipeline::step4StageCycle() {
 
         // Data Forwarding for Operand A (rs1)
         if (id_ex_.inst.readsRs1()) {
-            if (ex_mem_.valid && !ex_mem_.bubble && ex_mem_.inst.writesRd() && (ex_mem_.inst.rd == id_ex_.inst.rs1)) {
-                val_a = ex_mem_.inst.isLoad() ? readMemory(ex_mem_.alu_result) : ex_mem_.alu_result;
+            if (ex_mem_.valid && !ex_mem_.bubble && (ex_mem_.inst.writesRd() || ex_mem_.inst.opcode == OP_CALL) && (ex_mem_.inst.opcode == OP_CALL ? RA : ex_mem_.inst.rd) == id_ex_.inst.rs1) {
+                val_a = (ex_mem_.inst.opcode == OP_CALL) ? (ex_mem_.pc + 4) : (ex_mem_.inst.isLoad() ? readMemory(ex_mem_.alu_result) : ex_mem_.alu_result);
                 last_fwd_a_ = ForwardSource::EX_MEM;
                 metrics_.forwarding_events++;
-            } else if (mem_wb_.valid && !mem_wb_.bubble && mem_wb_.inst.writesRd() && (mem_wb_.inst.rd == id_ex_.inst.rs1)) {
-                val_a = mem_wb_.write_data;
+            } else if (mem_wb_.valid && !mem_wb_.bubble && (mem_wb_.inst.writesRd() || mem_wb_.inst.opcode == OP_CALL) && (mem_wb_.inst.opcode == OP_CALL ? RA : mem_wb_.inst.rd) == id_ex_.inst.rs1) {
+                val_a = (mem_wb_.inst.opcode == OP_CALL) ? (mem_wb_.pc + 4) : mem_wb_.write_data;
                 last_fwd_a_ = ForwardSource::MEM_WB;
                 metrics_.forwarding_events++;
             }
@@ -259,12 +258,12 @@ bool CPUPipeline::step4StageCycle() {
 
         // Data Forwarding for Operand B (rs2)
         if (id_ex_.inst.readsRs2()) {
-            if (ex_mem_.valid && !ex_mem_.bubble && ex_mem_.inst.writesRd() && (ex_mem_.inst.rd == id_ex_.inst.rs2)) {
-                val_b = ex_mem_.inst.isLoad() ? readMemory(ex_mem_.alu_result) : ex_mem_.alu_result;
+            if (ex_mem_.valid && !ex_mem_.bubble && (ex_mem_.inst.writesRd() || ex_mem_.inst.opcode == OP_CALL) && (ex_mem_.inst.opcode == OP_CALL ? RA : ex_mem_.inst.rd) == id_ex_.inst.rs2) {
+                val_b = (ex_mem_.inst.opcode == OP_CALL) ? (ex_mem_.pc + 4) : (ex_mem_.inst.isLoad() ? readMemory(ex_mem_.alu_result) : ex_mem_.alu_result);
                 last_fwd_b_ = ForwardSource::EX_MEM;
                 metrics_.forwarding_events++;
-            } else if (mem_wb_.valid && !mem_wb_.bubble && mem_wb_.inst.writesRd() && (mem_wb_.inst.rd == id_ex_.inst.rs2)) {
-                val_b = mem_wb_.write_data;
+            } else if (mem_wb_.valid && !mem_wb_.bubble && (mem_wb_.inst.writesRd() || mem_wb_.inst.opcode == OP_CALL) && (mem_wb_.inst.opcode == OP_CALL ? RA : mem_wb_.inst.rd) == id_ex_.inst.rs2) {
+                val_b = (mem_wb_.inst.opcode == OP_CALL) ? (mem_wb_.pc + 4) : mem_wb_.write_data;
                 last_fwd_b_ = ForwardSource::MEM_WB;
                 metrics_.forwarding_events++;
             }
@@ -272,11 +271,11 @@ bool CPUPipeline::step4StageCycle() {
 
         // Data Forwarding for Store Data (rd)
         if (id_ex_.inst.readsStoreRd()) {
-            if (ex_mem_.valid && !ex_mem_.bubble && ex_mem_.inst.writesRd() && (ex_mem_.inst.rd == id_ex_.inst.rd)) {
-                store_data = ex_mem_.inst.isLoad() ? readMemory(ex_mem_.alu_result) : ex_mem_.alu_result;
+            if (ex_mem_.valid && !ex_mem_.bubble && (ex_mem_.inst.writesRd() || ex_mem_.inst.opcode == OP_CALL) && (ex_mem_.inst.opcode == OP_CALL ? RA : ex_mem_.inst.rd) == id_ex_.inst.rd) {
+                store_data = (ex_mem_.inst.opcode == OP_CALL) ? (ex_mem_.pc + 4) : (ex_mem_.inst.isLoad() ? readMemory(ex_mem_.alu_result) : ex_mem_.alu_result);
                 metrics_.forwarding_events++;
-            } else if (mem_wb_.valid && !mem_wb_.bubble && mem_wb_.inst.writesRd() && (mem_wb_.inst.rd == id_ex_.inst.rd)) {
-                store_data = mem_wb_.write_data;
+            } else if (mem_wb_.valid && !mem_wb_.bubble && (mem_wb_.inst.writesRd() || mem_wb_.inst.opcode == OP_CALL) && (mem_wb_.inst.opcode == OP_CALL ? RA : mem_wb_.inst.rd) == id_ex_.inst.rd) {
+                store_data = (mem_wb_.inst.opcode == OP_CALL) ? (mem_wb_.pc + 4) : mem_wb_.write_data;
                 metrics_.forwarding_events++;
             }
         }
@@ -301,9 +300,13 @@ bool CPUPipeline::step4StageCycle() {
         } else if (id_ex_.inst.opcode == OP_NOP) {
             alu_out = 0;
         } else {
-            ALUOp aop = ALU::fromOpcode(id_ex_.inst.opcode);
-            auto res = ALU::execute(aop, val_a, val_b, flags_);
-            alu_out = res.result;
+            try {
+                ALUOp aop = ALU::fromOpcode(id_ex_.inst.opcode);
+                auto res = ALU::execute(aop, val_a, val_b, flags_);
+                alu_out = res.result;
+            } catch (const DivisionByZeroException&) {
+                throw DivisionByZeroException(id_ex_.pc);
+            }
         }
 
         // Branch Resolution (Conditional Branches & RET evaluated with ALU flags / RA)
@@ -326,6 +329,13 @@ bool CPUPipeline::step4StageCycle() {
             }
         } else if (id_ex_.inst.opcode == OP_RET) {
             addr_t actual_target = regs_[RA];
+            if (ex_mem_.valid && !ex_mem_.bubble && (ex_mem_.inst.writesRd() || ex_mem_.inst.opcode == OP_CALL) && (ex_mem_.inst.opcode == OP_CALL ? RA : ex_mem_.inst.rd) == RA) {
+                actual_target = (ex_mem_.inst.opcode == OP_CALL) ? (ex_mem_.pc + 4) : (ex_mem_.inst.isLoad() ? readMemory(ex_mem_.alu_result) : ex_mem_.alu_result);
+                metrics_.forwarding_events++;
+            } else if (mem_wb_.valid && !mem_wb_.bubble && (mem_wb_.inst.writesRd() || mem_wb_.inst.opcode == OP_CALL) && (mem_wb_.inst.opcode == OP_CALL ? RA : mem_wb_.inst.rd) == RA) {
+                actual_target = (mem_wb_.inst.opcode == OP_CALL) ? (mem_wb_.pc + 4) : mem_wb_.write_data;
+                metrics_.forwarding_events++;
+            }
             metrics_.branch_predictions++;
             if (id_ex_.ras_predicted && id_ex_.predicted_target == actual_target) {
                 // RAS Return Prediction Hit! 0 Penalty Bubbles!
@@ -371,6 +381,7 @@ bool CPUPipeline::step4StageCycle() {
             if (dec.readsRs1() && (dec.rs1 == load_rd)) load_use_hazard = true;
             if (dec.readsRs2() && (dec.rs2 == load_rd)) load_use_hazard = true;
             if (dec.readsStoreRd() && (dec.rd == load_rd)) load_use_hazard = true;
+            if (dec.readsRA() && (load_rd == RA)) load_use_hazard = true;
         }
 
         if (load_use_hazard) {
@@ -387,10 +398,14 @@ bool CPUPipeline::step4StageCycle() {
             word_t val_rd  = regs_[dec.rd];
 
             // Internal Writeback Forwarding (write-before-read)
-            if (next_mem_wb.valid && !next_mem_wb.bubble && next_mem_wb.inst.writesRd()) {
-                if (next_mem_wb.inst.rd == dec.rs1) val_rs1 = next_mem_wb.write_data;
-                if (next_mem_wb.inst.rd == dec.rs2) val_rs2 = next_mem_wb.write_data;
-                if (next_mem_wb.inst.rd == dec.rd)  val_rd  = next_mem_wb.write_data;
+            if (next_mem_wb.valid && !next_mem_wb.bubble) {
+                reg_t wr_reg = (next_mem_wb.inst.opcode == OP_CALL) ? RA : next_mem_wb.inst.rd;
+                word_t wr_val = (next_mem_wb.inst.opcode == OP_CALL) ? (next_mem_wb.pc + 4) : next_mem_wb.write_data;
+                if (next_mem_wb.inst.writesRd() || next_mem_wb.inst.opcode == OP_CALL) {
+                    if (wr_reg == dec.rs1) val_rs1 = wr_val;
+                    if (wr_reg == dec.rs2) val_rs2 = wr_val;
+                    if (wr_reg == dec.rd)  val_rd  = wr_val;
+                }
             }
 
             // Early Branch Resolution in ID for Unconditional Branches (B, CALL)
@@ -509,123 +524,145 @@ bool CPUPipeline::step6StageCycle() {
     last_fwd_a_ = ForwardSource::NONE;
     last_fwd_b_ = ForwardSource::NONE;
 
-    Latch_MEM_WB  next_mem_wb6{};
-    Latch_EX_MEM  next_ex_mem6{};
-    Latch_RR_EX   next_rr_ex{};
-    Latch_ID_RR   next_id_rr{};
-    Latch_IF2_ID  next_if2_id{};
+    Latch_MA_RW  next_ma_rw{};
+    Latch_EX_MA  next_ex_ma{};
+    Latch_OF_EX  next_of_ex{};
+    Latch_IF2_OF next_if2_of{};
     Latch_IF1_IF2 next_if1_if2{};
 
     bool stall_6stage = false;
     bool branch_taken = false;
     addr_t branch_target = 0;
 
-    // STAGE 6: WB WITH D-CACHE & STORE BUFFER
-    if (ex_mem6_.valid && !ex_mem6_.bubble) {
-        word_t write_data = ex_mem6_.alu_result;
-        if (ex_mem6_.inst.isLoad()) {
+    // ------------------------------------------------------------------------
+    // STAGE 6: REGISTER WRITEBACK (RW)
+    // ------------------------------------------------------------------------
+    if (ma_rw_.valid && !ma_rw_.bubble) {
+        if (ma_rw_.inst.opcode == OP_CALL) {
+            regs_[RA] = ma_rw_.pc + 4;
+        } else if (ma_rw_.inst.writesRd()) {
+            regs_[ma_rw_.inst.rd] = ma_rw_.write_data;
+        }
+
+        metrics_.instructions_retired++;
+    }
+
+    // ------------------------------------------------------------------------
+    // STAGE 5: DATA MEMORY ACCESS (MA) WITH D-CACHE & STORE BUFFER
+    // ------------------------------------------------------------------------
+    if (ex_ma_.valid && !ex_ma_.bubble) {
+        word_t write_data = ex_ma_.alu_result;
+        if (ex_ma_.inst.isLoad()) {
             word_t fwd = 0;
-            if (store_buffer_.lookup(ex_mem6_.alu_result, fwd)) {
+            if (store_buffer_.lookup(ex_ma_.alu_result, fwd)) {
                 write_data = fwd;
                 metrics_.store_load_forwards++;
             } else {
                 metrics_.dcache_accesses++;
-                bool dhit = dcache_.access(ex_mem6_.alu_result, false, 0, mem_, write_data);
+                bool dhit = dcache_.access(ex_ma_.alu_result, false, 0, mem_, write_data);
                 if (dhit) metrics_.dcache_hits++;
             }
-        } else if (ex_mem6_.inst.isStore()) {
-            store_buffer_.insert(ex_mem6_.alu_result, ex_mem6_.store_data);
+        } else if (ex_ma_.inst.isStore()) {
+            store_buffer_.insert(ex_ma_.alu_result, ex_ma_.store_data);
             metrics_.dcache_accesses++;
             word_t dummy = 0;
-            bool dhit = dcache_.access(ex_mem6_.alu_result, true, ex_mem6_.store_data, mem_, dummy);
+            bool dhit = dcache_.access(ex_ma_.alu_result, true, ex_ma_.store_data, mem_, dummy);
             if (dhit) metrics_.dcache_hits++;
-            writeMemory(ex_mem6_.alu_result, ex_mem6_.store_data);
+            writeMemory(ex_ma_.alu_result, ex_ma_.store_data);
         }
 
-        if (ex_mem6_.inst.opcode == OP_CALL) {
-            regs_[RA] = ex_mem6_.pc + 4;
-        } else if (ex_mem6_.inst.writesRd()) {
-            regs_[ex_mem6_.inst.rd] = write_data;
-        }
-
-        metrics_.instructions_retired++;
-
-        next_mem_wb6.pc = ex_mem6_.pc;
-        next_mem_wb6.inst = ex_mem6_.inst;
-        next_mem_wb6.write_data = write_data;
-        next_mem_wb6.valid = true;
-        next_mem_wb6.bubble = false;
+        next_ma_rw.pc = ex_ma_.pc;
+        next_ma_rw.inst = ex_ma_.inst;
+        next_ma_rw.write_data = write_data;
+        next_ma_rw.valid = true;
+        next_ma_rw.bubble = false;
     }
 
-    // STAGE 5: EX
-    if (rr_ex_.valid && !rr_ex_.bubble) {
-        word_t val_a = rr_ex_.val_rs1;
-        word_t val_b = rr_ex_.val_rs2;
-        word_t store_data = rr_ex_.val_rd;
+    // ------------------------------------------------------------------------
+    // STAGE 4: EXECUTE (EX) WITH ALU, FORWARDING & BRANCH RESOLUTION
+    // ------------------------------------------------------------------------
+    if (of_ex_.valid && !of_ex_.bubble) {
+        word_t val_a = of_ex_.val_rs1;
+        word_t val_b = of_ex_.val_rs2;
+        word_t store_data = of_ex_.val_rd;
 
-        if (rr_ex_.inst.readsRs1()) {
-            if (ex_mem6_.valid && !ex_mem6_.bubble && ex_mem6_.inst.writesRd() && (ex_mem6_.inst.rd == rr_ex_.inst.rs1)) {
-                val_a = ex_mem6_.inst.isLoad() ? readMemory(ex_mem6_.alu_result) : ex_mem6_.alu_result;
+        // Data Forwarding for Operand A (rs1)
+        if (of_ex_.inst.readsRs1()) {
+            if (ex_ma_.valid && !ex_ma_.bubble && !ex_ma_.inst.isLoad() && (ex_ma_.inst.writesRd() || ex_ma_.inst.opcode == OP_CALL) && (ex_ma_.inst.opcode == OP_CALL ? RA : ex_ma_.inst.rd) == of_ex_.inst.rs1) {
+                val_a = (ex_ma_.inst.opcode == OP_CALL) ? (ex_ma_.pc + 4) : ex_ma_.alu_result;
                 last_fwd_a_ = ForwardSource::EX_MEM;
                 metrics_.forwarding_events++;
-            } else if (mem_wb6_.valid && !mem_wb6_.bubble && mem_wb6_.inst.writesRd() && (mem_wb6_.inst.rd == rr_ex_.inst.rs1)) {
-                val_a = mem_wb6_.write_data;
+            } else if (ma_rw_.valid && !ma_rw_.bubble && (ma_rw_.inst.writesRd() || ma_rw_.inst.opcode == OP_CALL) && (ma_rw_.inst.opcode == OP_CALL ? RA : ma_rw_.inst.rd) == of_ex_.inst.rs1) {
+                val_a = (ma_rw_.inst.opcode == OP_CALL) ? (ma_rw_.pc + 4) : ma_rw_.write_data;
                 last_fwd_a_ = ForwardSource::MEM_WB;
                 metrics_.forwarding_events++;
             }
         }
 
-        if (rr_ex_.inst.readsRs2()) {
-            if (ex_mem6_.valid && !ex_mem6_.bubble && ex_mem6_.inst.writesRd() && (ex_mem6_.inst.rd == rr_ex_.inst.rs2)) {
-                val_b = ex_mem6_.inst.isLoad() ? readMemory(ex_mem6_.alu_result) : ex_mem6_.alu_result;
+        // Data Forwarding for Operand B (rs2)
+        if (of_ex_.inst.readsRs2()) {
+            if (ex_ma_.valid && !ex_ma_.bubble && !ex_ma_.inst.isLoad() && (ex_ma_.inst.writesRd() || ex_ma_.inst.opcode == OP_CALL) && (ex_ma_.inst.opcode == OP_CALL ? RA : ex_ma_.inst.rd) == of_ex_.inst.rs2) {
+                val_b = (ex_ma_.inst.opcode == OP_CALL) ? (ex_ma_.pc + 4) : ex_ma_.alu_result;
                 last_fwd_b_ = ForwardSource::EX_MEM;
                 metrics_.forwarding_events++;
-            } else if (mem_wb6_.valid && !mem_wb6_.bubble && mem_wb6_.inst.writesRd() && (mem_wb6_.inst.rd == rr_ex_.inst.rs2)) {
-                val_b = mem_wb6_.write_data;
+            } else if (ma_rw_.valid && !ma_rw_.bubble && (ma_rw_.inst.writesRd() || ma_rw_.inst.opcode == OP_CALL) && (ma_rw_.inst.opcode == OP_CALL ? RA : ma_rw_.inst.rd) == of_ex_.inst.rs2) {
+                val_b = (ma_rw_.inst.opcode == OP_CALL) ? (ma_rw_.pc + 4) : ma_rw_.write_data;
                 last_fwd_b_ = ForwardSource::MEM_WB;
                 metrics_.forwarding_events++;
             }
         }
 
-        if (rr_ex_.inst.readsStoreRd()) {
-            if (ex_mem6_.valid && !ex_mem6_.bubble && ex_mem6_.inst.writesRd() && (ex_mem6_.inst.rd == rr_ex_.inst.rd)) {
-                store_data = ex_mem6_.inst.isLoad() ? readMemory(ex_mem6_.alu_result) : ex_mem6_.alu_result;
+        // Data Forwarding for Store Data (rd)
+        if (of_ex_.inst.readsStoreRd()) {
+            if (ex_ma_.valid && !ex_ma_.bubble && !ex_ma_.inst.isLoad() && (ex_ma_.inst.writesRd() || ex_ma_.inst.opcode == OP_CALL) && (ex_ma_.inst.opcode == OP_CALL ? RA : ex_ma_.inst.rd) == of_ex_.inst.rd) {
+                store_data = (ex_ma_.inst.opcode == OP_CALL) ? (ex_ma_.pc + 4) : ex_ma_.alu_result;
                 metrics_.forwarding_events++;
-            } else if (mem_wb6_.valid && !mem_wb6_.bubble && mem_wb6_.inst.writesRd() && (mem_wb6_.inst.rd == rr_ex_.inst.rd)) {
-                store_data = mem_wb6_.write_data;
+            } else if (ma_rw_.valid && !ma_rw_.bubble && (ma_rw_.inst.writesRd() || ma_rw_.inst.opcode == OP_CALL) && (ma_rw_.inst.opcode == OP_CALL ? RA : ma_rw_.inst.rd) == of_ex_.inst.rd) {
+                store_data = (ma_rw_.inst.opcode == OP_CALL) ? (ma_rw_.pc + 4) : ma_rw_.write_data;
                 metrics_.forwarding_events++;
             }
         }
 
-        if (rr_ex_.inst.I) val_b = rr_ex_.inst.immx;
+        if (of_ex_.inst.I) val_b = of_ex_.inst.immx;
 
         word_t alu_out = 0;
-        if (rr_ex_.inst.isLoad() || rr_ex_.inst.isStore()) {
-            alu_out = val_a + rr_ex_.inst.immx;
-        } else if (rr_ex_.inst.opcode == OP_MOV) {
+        if (of_ex_.inst.isLoad() || of_ex_.inst.isStore()) {
+            alu_out = val_a + of_ex_.inst.immx;
+        } else if (of_ex_.inst.opcode == OP_MOV) {
             alu_out = val_b;
-        } else if (rr_ex_.inst.opcode == OP_NOT) {
+        } else if (of_ex_.inst.opcode == OP_NOT) {
             alu_out = ~val_b;
-        } else if (rr_ex_.inst.opcode == OP_CMP) {
+        } else if (of_ex_.inst.opcode == OP_CMP) {
             auto res = ALU::execute(ALUOp::CMP, val_a, val_b, flags_);
             flags_.E = res.flags.E;
             flags_.GT = res.flags.GT;
             alu_out = res.result;
-        } else if (rr_ex_.inst.opcode == OP_NOP) {
+        } else if (of_ex_.inst.opcode == OP_NOP) {
             alu_out = 0;
         } else {
-            ALUOp aop = ALU::fromOpcode(rr_ex_.inst.opcode);
-            auto res = ALU::execute(aop, val_a, val_b, flags_);
-            alu_out = res.result;
+            try {
+                ALUOp aop = ALU::fromOpcode(of_ex_.inst.opcode);
+                auto res = ALU::execute(aop, val_a, val_b, flags_);
+                alu_out = res.result;
+            } catch (const DivisionByZeroException&) {
+                throw DivisionByZeroException(of_ex_.pc);
+            }
         }
 
-        branch_target = rr_ex_.inst.branch_target;
-        if (rr_ex_.inst.opcode == OP_BEQ) branch_taken = flags_.E;
-        else if (rr_ex_.inst.opcode == OP_BGT) branch_taken = flags_.GT;
-        else if (rr_ex_.inst.opcode == OP_B || rr_ex_.inst.opcode == OP_CALL) branch_taken = true;
-        else if (rr_ex_.inst.opcode == OP_RET) {
+        branch_target = of_ex_.inst.branch_target;
+        if (of_ex_.inst.opcode == OP_BEQ) branch_taken = flags_.E;
+        else if (of_ex_.inst.opcode == OP_BGT) branch_taken = flags_.GT;
+        else if (of_ex_.inst.opcode == OP_B || of_ex_.inst.opcode == OP_CALL) branch_taken = true;
+        else if (of_ex_.inst.opcode == OP_RET) {
             branch_taken = true;
             branch_target = regs_[RA];
+            if (ex_ma_.valid && !ex_ma_.bubble && (ex_ma_.inst.writesRd() || ex_ma_.inst.opcode == OP_CALL) && (ex_ma_.inst.opcode == OP_CALL ? RA : ex_ma_.inst.rd) == RA) {
+                branch_target = (ex_ma_.inst.opcode == OP_CALL) ? (ex_ma_.pc + 4) : (ex_ma_.inst.isLoad() ? readMemory(ex_ma_.alu_result) : ex_ma_.alu_result);
+                metrics_.forwarding_events++;
+            } else if (ma_rw_.valid && !ma_rw_.bubble && (ma_rw_.inst.writesRd() || ma_rw_.inst.opcode == OP_CALL) && (ma_rw_.inst.opcode == OP_CALL ? RA : ma_rw_.inst.rd) == RA) {
+                branch_target = (ma_rw_.inst.opcode == OP_CALL) ? (ma_rw_.pc + 4) : ma_rw_.write_data;
+                metrics_.forwarding_events++;
+            }
         }
 
         if (branch_taken) {
@@ -634,63 +671,37 @@ bool CPUPipeline::step6StageCycle() {
             pc_ = branch_target;
         }
 
-        next_ex_mem6.pc = rr_ex_.pc;
-        next_ex_mem6.inst = rr_ex_.inst;
-        next_ex_mem6.alu_result = alu_out;
-        next_ex_mem6.store_data = store_data;
-        next_ex_mem6.branch_taken = branch_taken;
-        next_ex_mem6.branch_target = branch_target;
-        next_ex_mem6.fwd_a = last_fwd_a_;
-        next_ex_mem6.fwd_b = last_fwd_b_;
-        next_ex_mem6.valid = true;
-        next_ex_mem6.bubble = false;
+        next_ex_ma.pc = of_ex_.pc;
+        next_ex_ma.inst = of_ex_.inst;
+        next_ex_ma.alu_result = alu_out;
+        next_ex_ma.store_data = store_data;
+        next_ex_ma.branch_taken = branch_taken;
+        next_ex_ma.branch_target = branch_target;
+        next_ex_ma.fwd_a = last_fwd_a_;
+        next_ex_ma.fwd_b = last_fwd_b_;
+        next_ex_ma.valid = true;
+        next_ex_ma.bubble = false;
     }
 
-    // STAGE 4: RR
+    // ------------------------------------------------------------------------
+    // STAGE 3: OPERAND FETCH (OF: INSTRUCTION DECODE & REGISTER READ)
+    // ------------------------------------------------------------------------
     if (branch_taken) {
-        next_rr_ex.valid = false;
-        next_rr_ex.bubble = true;
-    } else if (id_rr_.valid && !id_rr_.bubble) {
-        word_t val_rs1 = regs_[id_rr_.inst.rs1];
-        word_t val_rs2 = regs_[id_rr_.inst.rs2];
-        word_t val_rd  = regs_[id_rr_.inst.rd];
+        next_of_ex.valid = false;
+        next_of_ex.bubble = true;
+    } else if (if2_of_.valid && !if2_of_.bubble) {
+        Instruction dec = Instruction::decode(if2_of_.raw_inst, if2_of_.pc);
 
-        if (next_mem_wb6.valid && !next_mem_wb6.bubble && next_mem_wb6.inst.writesRd()) {
-            if (next_mem_wb6.inst.rd == id_rr_.inst.rs1) val_rs1 = next_mem_wb6.write_data;
-            if (next_mem_wb6.inst.rd == id_rr_.inst.rs2) val_rs2 = next_mem_wb6.write_data;
-            if (next_mem_wb6.inst.rd == id_rr_.inst.rd)  val_rd  = next_mem_wb6.write_data;
-        }
-
-        next_rr_ex.pc = id_rr_.pc;
-        next_rr_ex.inst = id_rr_.inst;
-        next_rr_ex.val_rs1 = val_rs1;
-        next_rr_ex.val_rs2 = val_rs2;
-        next_rr_ex.val_rd = val_rd;
-        next_rr_ex.valid = true;
-        next_rr_ex.bubble = false;
-    }
-
-    // STAGE 3: ID
-    if (branch_taken) {
-        next_id_rr.valid = false;
-        next_id_rr.bubble = true;
-    } else if (if2_id_.valid && !if2_id_.bubble) {
-        Instruction dec = Instruction::decode(if2_id_.raw_inst, if2_id_.pc);
-
+        // Load-Use Hazard Detection:
+        // If preceding instruction in EX is a load, its value won't be ready until the end of MA stage.
+        // Therefore, any dependent instruction in OF MUST stall 1 cycle.
         bool load_use = false;
-        if (rr_ex_.valid && !rr_ex_.bubble && rr_ex_.inst.isLoad()) {
-            reg_t lrd = rr_ex_.inst.rd;
+        if (of_ex_.valid && !of_ex_.bubble && of_ex_.inst.isLoad()) {
+            reg_t lrd = of_ex_.inst.rd;
             if ((dec.readsRs1() && dec.rs1 == lrd) ||
                 (dec.readsRs2() && dec.rs2 == lrd) ||
-                (dec.readsStoreRd() && dec.rd == lrd)) {
-                load_use = true;
-            }
-        }
-        if (id_rr_.valid && !id_rr_.bubble && id_rr_.inst.isLoad()) {
-            reg_t lrd = id_rr_.inst.rd;
-            if ((dec.readsRs1() && dec.rs1 == lrd) ||
-                (dec.readsRs2() && dec.rs2 == lrd) ||
-                (dec.readsStoreRd() && dec.rd == lrd)) {
+                (dec.readsStoreRd() && dec.rd == lrd) ||
+                (dec.readsRA() && lrd == RA)) {
                 load_use = true;
             }
         }
@@ -701,30 +712,65 @@ bool CPUPipeline::step6StageCycle() {
             metrics_.stall_cycles++;
             metrics_.load_use_hazards++;
 
-            next_id_rr.valid = false;
-            next_id_rr.bubble = true;
+            next_of_ex.valid = false;
+            next_of_ex.bubble = true;
         } else {
-            next_id_rr.pc = if2_id_.pc;
-            next_id_rr.inst = dec;
-            next_id_rr.valid = true;
-            next_id_rr.bubble = false;
+            word_t val_rs1 = regs_[dec.rs1];
+            word_t val_rs2 = regs_[dec.rs2];
+            word_t val_rd  = regs_[dec.rd];
+
+            // Internal Writeback Forwarding (write-before-read from Stage 6 RW):
+            if (ma_rw_.valid && !ma_rw_.bubble) {
+                reg_t wr_reg = (ma_rw_.inst.opcode == OP_CALL) ? RA : ma_rw_.inst.rd;
+                word_t wr_val = (ma_rw_.inst.opcode == OP_CALL) ? (ma_rw_.pc + 4) : ma_rw_.write_data;
+                if (ma_rw_.inst.writesRd() || ma_rw_.inst.opcode == OP_CALL) {
+                    if (wr_reg == dec.rs1) val_rs1 = wr_val;
+                    if (wr_reg == dec.rs2) val_rs2 = wr_val;
+                    if (wr_reg == dec.rd)  val_rd  = wr_val;
+                }
+            }
+
+            next_of_ex.pc = if2_of_.pc;
+            next_of_ex.inst = dec;
+            next_of_ex.val_rs1 = val_rs1;
+            next_of_ex.val_rs2 = val_rs2;
+            next_of_ex.val_rd = val_rd;
+            next_of_ex.valid = true;
+            next_of_ex.bubble = false;
         }
     }
 
-    // STAGE 2: IF2
+    // ------------------------------------------------------------------------
+    // STAGE 2: INSTRUCTION FETCH 2 (IF2: MEMORY / I-CACHE ACCESS)
+    // ------------------------------------------------------------------------
     if (branch_taken) {
-        next_if2_id.valid = false;
-        next_if2_id.bubble = true;
+        next_if2_of.valid = false;
+        next_if2_of.bubble = true;
     } else if (stall_6stage) {
-        next_if2_id = if2_id_;
+        next_if2_of = if2_of_;
     } else if (if1_if2_.valid && !if1_if2_.bubble) {
-        next_if2_id.pc = if1_if2_.pc;
-        next_if2_id.raw_inst = readMemory(if1_if2_.pc);
-        next_if2_id.valid = true;
-        next_if2_id.bubble = false;
+        metrics_.icache_accesses++;
+        word_t raw = 0;
+        bool ihit = icache_.access(if1_if2_.pc, false, 0, mem_, raw);
+        if (ihit) metrics_.icache_hits++;
+
+        // Structural Hazard Avoidance (concurrent IF2 and MA memory requests handled by Harvard split cache)
+        if (ex_ma_.valid && !ex_ma_.bubble && (ex_ma_.inst.isLoad() || ex_ma_.inst.isStore())) {
+            metrics_.structural_stalls_avoided++;
+        }
+
+        next_if2_of.pc = if1_if2_.pc;
+        next_if2_of.raw_inst = raw;
+        next_if2_of.valid = true;
+        next_if2_of.bubble = false;
+    } else {
+        next_if2_of.valid = false;
+        next_if2_of.bubble = true;
     }
 
-    // STAGE 1: IF1
+    // ------------------------------------------------------------------------
+    // STAGE 1: INSTRUCTION FETCH 1 (IF1: PC GENERATION & ADDRESS SETUP)
+    // ------------------------------------------------------------------------
     if (branch_taken) {
         next_if1_if2.valid = false;
         next_if1_if2.bubble = true;
@@ -742,11 +788,10 @@ bool CPUPipeline::step6StageCycle() {
         }
     }
 
-    mem_wb6_ = next_mem_wb6;
-    ex_mem6_ = next_ex_mem6;
-    rr_ex_   = next_rr_ex;
-    id_rr_   = next_id_rr;
-    if2_id_  = next_if2_id;
+    ma_rw_   = next_ma_rw;
+    ex_ma_   = next_ex_ma;
+    of_ex_   = next_of_ex;
+    if2_of_  = next_if2_of;
     if1_if2_ = next_if1_if2;
 
     return true;
@@ -781,13 +826,26 @@ bool CPUPipeline::stepMicroCycle() {
 // HIGH-LEVEL STEPPING AND RUNNER
 // ============================================================================
 bool CPUPipeline::cycleStep() {
-    switch (mode_) {
-        case PipelineMode::FOUR_STAGE:
-            return step4StageCycle();
-        case PipelineMode::SIX_STAGE:
-            return step6StageCycle();
-        case PipelineMode::MICROPROGRAMMED:
-            return stepMicroCycle();
+    if (halted_) return false;
+    try {
+        switch (mode_) {
+            case PipelineMode::FOUR_STAGE:
+                return step4StageCycle();
+            case PipelineMode::SIX_STAGE:
+                return step6StageCycle();
+            case PipelineMode::MICROPROGRAMMED:
+                return stepMicroCycle();
+        }
+    } catch (const SimpleRISCException& ex) {
+        has_exception_ = true;
+        exception_msg_ = ex.what();
+        halted_ = true;
+        return false;
+    } catch (const std::exception& ex) {
+        has_exception_ = true;
+        exception_msg_ = ex.what();
+        halted_ = true;
+        return false;
     }
     return false;
 }
@@ -891,12 +949,12 @@ std::string CPUPipeline::dump6StageState() const {
         return line.str();
     };
 
-    ss << formatStage("IF1", if1_if2_.pc, 0, if1_if2_.valid, "Address Gen: " + toHex8(if1_if2_.pc));
-    ss << formatStage("IF2", if2_id_.pc, if2_id_.raw_inst, if2_id_.valid, "Memory Latch");
-    ss << formatStage("ID", id_rr_.pc, id_rr_.inst.raw, id_rr_.valid, "Instruction Decode & Hazard Check");
-    ss << formatStage("RR", rr_ex_.pc, rr_ex_.inst.raw, rr_ex_.valid, "Register Read & Forward Setup");
-    ss << formatStage("EX", ex_mem6_.pc, ex_mem6_.inst.raw, ex_mem6_.valid, "ALU Result: " + toHex8(ex_mem6_.alu_result));
-    ss << formatStage("WB", mem_wb6_.pc, mem_wb6_.inst.raw, mem_wb6_.valid, "Committed to Register File: " + toHex8(mem_wb6_.write_data));
+    ss << formatStage("IF1", pc_, 0, (pc_ < text_end_), "Address Gen: " + toHex8(pc_));
+    ss << formatStage("IF2", if1_if2_.pc, 0, if1_if2_.valid, "Instruction Memory Latch");
+    ss << formatStage("OF",  if2_of_.pc, if2_of_.raw_inst, if2_of_.valid, "Operand Fetch (Decode & Reg Read)");
+    ss << formatStage("EX",  of_ex_.pc, of_ex_.inst.raw, of_ex_.valid, "ALU Result: " + toHex8(ex_ma_.alu_result));
+    ss << formatStage("MA",  ex_ma_.pc, ex_ma_.inst.raw, ex_ma_.valid, "Data Memory Access");
+    ss << formatStage("RW",  ma_rw_.pc, ma_rw_.inst.raw, ma_rw_.valid, "Committed to Register File: " + toHex8(ma_rw_.write_data));
 
     ss << "+-----------------------------------------------------------------------------+\n";
     ss << "| Telemetry: Stall: " << (last_stall_ ? "YES" : "NO ")

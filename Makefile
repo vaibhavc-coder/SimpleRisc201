@@ -21,7 +21,7 @@ $(BIN): $(SRCS)
 	$(CXX) $(CXXFLAGS) $(SRCS) -o $(BIN)
 
 clean:
-	del /Q $(BIN) 2>NUL || rm -f $(BIN)
+	rm -f $(BIN) NUL 2>/dev/null || del /Q $(BIN) 2>NUL || true
 
 run: $(BIN)
 	./$(BIN)

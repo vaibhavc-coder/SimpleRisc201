@@ -14,7 +14,7 @@ _start:
   add r5, r4, 5       ; Immediate use of r4! (Requires 1-cycle hardware pipeline stall)
 
   ; 3. Conditional comparison and branch penalty
-  cmp r5, 30
+  cmp r5, 15
   beq branch_target   ; Branch taken -> requires pipeline squash/flush
   mov r6, 999         ; Should be flushed (never retired)
 

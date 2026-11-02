@@ -306,6 +306,10 @@ struct Instruction {
     bool isBranch() const {
         return valid && (opcode == OP_BEQ || opcode == OP_BGT || opcode == OP_B || opcode == OP_CALL || opcode == OP_RET);
     }
+
+    bool readsRA() const {
+        return valid && (opcode == OP_RET);
+    }
 };
 
 inline std::string toHex8(word_t val) {
@@ -329,13 +333,13 @@ public:
 class DivisionByZeroException : public SimpleRISCException {
 public:
     explicit DivisionByZeroException(addr_t pc = 0)
-        : SimpleRISCException("Division by Zero at PC 0x" + toHex8(pc)) {}
+        : SimpleRISCException("Division by Zero at PC " + toHex8(pc)) {}
 };
 
 class IllegalInstructionException : public SimpleRISCException {
 public:
     IllegalInstructionException(word_t word, addr_t pc)
-        : SimpleRISCException("Illegal Instruction 0x" + toHex8(word) + " at PC 0x" + toHex8(pc)) {}
+        : SimpleRISCException("Illegal Instruction " + toHex8(word) + " at PC " + toHex8(pc)) {}
 };
 
 } // namespace simplerisc

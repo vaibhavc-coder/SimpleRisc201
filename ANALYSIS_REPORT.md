@@ -83,12 +83,12 @@ graph TD
     C1 --> D1["MEM/WB (Data Memory & Writeback)"]
     end
 
-    subgraph "6-Stage Super-Pipeline"
+    subgraph "6-Stage Super-Pipeline (Sarangi Canonical)"
     A2["IF1 (Address Gen)"] --> B2["IF2 (Instruction Read)"]
-    B2 --> C2["ID (Instruction Decode)"]
-    C2 --> D2["RR (Register File Read)"]
-    D2 --> E2["EX (Execution & Address Gen)"]
-    E2 --> F2["WB (Memory Access & Writeback)"]
+    B2 --> C2["OF (Decode & Reg Read)"]
+    C2 --> D2["EX (Execution & Branch Eval)"]
+    D2 --> E2["MA (Data Memory Access)"]
+    E2 --> F2["RW (Register Writeback)"]
     end
 ```
 
