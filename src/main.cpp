@@ -396,6 +396,85 @@ void testStackInnovations() {
     std::cout << "[PASS] Consolidated Block Push/Pop & Front-End Stack Engine Verified!\n";
 }
 
+void testLoadUseOptimization() {
+    std::cout << "\n=======================================================\n";
+    std::cout << " 8. LOAD-USE DELAY SLOT OPTIMIZATION (INSTRUCTION SCHEDULING)\n";
+    std::cout << "=======================================================\n";
+
+    std::string test_code =
+        "main:\n"
+        "  mov r2, 0\n"
+        "  mov r4, 25\n"
+        "  mov r7, 50\n"
+        "  st  r4, 0[r2]\n"
+        "  st  r7, 4[r2]\n"
+        "  ld  r1, 0[r2]\n"
+        "  add r3, r1, r4\n"
+        "  mov r5, 100\n"
+        "  ld  r6, 4[r2]\n"
+        "  sub r8, r6, r4\n"
+        "  mov r9, 200\n"
+        "  nop\n";
+
+    // 1. Assemble WITHOUT Load-Use Optimization
+    Assembler asm_unopt;
+    asm_unopt.setOptimizeLoadUse(false);
+    AssemblyResult res_unopt = asm_unopt.assemble(test_code);
+    assert(res_unopt.success);
+
+    // 2. Assemble WITH Load-Use Optimization
+    Assembler asm_opt;
+    asm_opt.setOptimizeLoadUse(true);
+    AssemblyResult res_opt = asm_opt.assemble(test_code);
+    assert(res_opt.success);
+    assert(res_opt.load_use_slots_optimized >= 2);
+
+    // 3. Execute in 6-Stage Super-Pipeline
+    CPUPipeline pipe_unopt(PipelineMode::SIX_STAGE);
+    pipe_unopt.loadProgram(res_unopt.machine_words, 0);
+    pipe_unopt.run(100);
+
+    CPUPipeline pipe_opt(PipelineMode::SIX_STAGE);
+    pipe_opt.loadProgram(res_opt.machine_words, 0);
+    pipe_opt.run(100);
+
+    // 4. Verify functional equivalence (exact register values match!)
+    for (reg_t r = 0; r <= 15; ++r) {
+        assert(pipe_unopt.getRegister(r) == pipe_opt.getRegister(r));
+    }
+    assert(pipe_opt.getRegister(1) == 25);
+    assert(pipe_opt.getRegister(3) == 50);
+    assert(pipe_opt.getRegister(5) == 100);
+    assert(pipe_opt.getRegister(6) == 50);
+    assert(pipe_opt.getRegister(8) == 25);
+    assert(pipe_opt.getRegister(9) == 200);
+
+    const auto& m_unopt = pipe_unopt.getMetrics();
+    const auto& m_opt = pipe_opt.getMetrics();
+
+    assert(m_unopt.load_use_hazards == 2);
+    assert(m_opt.load_use_hazards == 0);
+    assert(m_unopt.stall_cycles >= 2);
+    assert(m_opt.stall_cycles == 0);
+
+    double speedup = (m_opt.total_cycles > 0) ? (static_cast<double>(m_unopt.total_cycles) / m_opt.total_cycles) : 1.0;
+
+    std::cout << "[OPTIMIZATION APPLIED]: Hoisted " << res_opt.load_use_slots_optimized
+              << " independent instructions into load-use delay slots!\n\n";
+
+    std::cout << "+--------------------------------+--------------------+--------------------+--------------------+\n";
+    std::cout << "| Performance Metric             | Unoptimized (Base) | Optimized (Static) | Improvement        |\n";
+    std::cout << "+--------------------------------+--------------------+--------------------+--------------------+\n";
+    std::cout << "| Load-Use Hazards Trapped       | " << std::setw(18) << m_unopt.load_use_hazards << " | " << std::setw(18) << m_opt.load_use_hazards << " | -100.0% (Zero)     |\n";
+    std::cout << "| Pipeline Stall Cycles          | " << std::setw(18) << m_unopt.stall_cycles << " | " << std::setw(18) << m_opt.stall_cycles << " | -100.0% (Zero)     |\n";
+    std::cout << "| Total Execution Cycles         | " << std::setw(18) << m_unopt.total_cycles << " | " << std::setw(18) << m_opt.total_cycles << " | " << std::setw(14) << (m_unopt.total_cycles - m_opt.total_cycles) << " cycles saved |\n";
+    std::cout << "| Instructions Retired           | " << std::setw(18) << m_unopt.instructions_retired << " | " << std::setw(18) << m_opt.instructions_retired << " | Exact Parity       |\n";
+    std::cout << "| Cycles Per Instruction (CPI)   | " << std::setw(18) << std::fixed << std::setprecision(3) << m_unopt.getCPI() << " | " << std::setw(18) << m_opt.getCPI() << " | Faster CPI         |\n";
+    std::cout << "| Relative Speedup               |           1.000x   | " << std::setw(17) << std::fixed << std::setprecision(3) << speedup << "x | +" << std::fixed << std::setprecision(1) << (speedup - 1.0) * 100.0 << "% Faster      |\n";
+    std::cout << "+--------------------------------+--------------------+--------------------+--------------------+\n";
+    std::cout << "[PASS] Load-Use Delay Optimization verified: 0 stalls, 100% correct computation!\n";
+}
+
 
 int main(int argc, char* argv[]) {
     std::string mode_str = "both";
@@ -478,6 +557,9 @@ int main(int argc, char* argv[]) {
 
         // 7. Stack Architectural Innovations (Consolidated Push/Pop & Stack Engine)
         testStackInnovations();
+
+        // 8. Static Instruction Scheduling (Load-Use Delay Slot Optimization)
+        testLoadUseOptimization();
     }
 
     // If external source file passed:
