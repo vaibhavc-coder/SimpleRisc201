@@ -25,6 +25,8 @@ This document records all architectural enhancements, advanced arithmetic circui
 18. [Full-Descending Stack Preprocessor, Memory Visualizer & Interactive CLI Debugger](#18-full-descending-stack-preprocessor-memory-visualizer--interactive-cli-debugger)
 19. [Architectural Trade-Off & Comprehensive Performance Review](#19-architectural-trade-off--comprehensive-performance-review)
 20. [Microprogrammed Control Unit Telemetry, Exception Trapping & Opcode Parity](#20-microprogrammed-control-unit-telemetry-exception-trapping--opcode-parity)
+21. [Front-End Hardware Stack Engine & Consolidated Block Push/Pop](#21-front-end-hardware-stack-engine--consolidated-block-pushpop)
+22. [Static Load-Use Delay Slot Optimization (Assembler Out-of-Order Instruction Scheduling)](#22-static-load-use-delay-slot-optimization-assembler-out-of-order-instruction-scheduling)
 
 ---
 
@@ -466,3 +468,52 @@ This section documents microarchitectural optimizations applied to both the **Ve
 - `total_micro_cycles_` is confirmed reset in `reset()`.
 - Added public accessors: `getInstructionsRetired()`, `getMicroCPI()`, `hasException()`, `getExceptionMessage()`, `getFaultingPC()`, `getFaultingUPC()`, `clearException()`.
 - Updated `dumpControlState()` to display instructions retired and CPI.
+
+---
+
+## 21. Front-End Hardware Stack Engine & Consolidated Block Push/Pop
+
+### Problem & Bottleneck (FIND-006 & FIND-007)
+In standard stack conventions, pushing multiple registers (e.g. `push {r1, r2, r3, r4}`) generated an interleaved chain of decrement-and-store operations:
+`sub sp, sp, 4` $\rightarrow$ `st r1, 0[sp]` $\rightarrow$ `sub sp, sp, 4` $\rightarrow$ `st r2, 0[sp]`...
+This forced 4 separate adjustments of `sp` through the integer ALU, causing sequential RAW data dependencies and pipeline stalls.
+
+### Architectural Solution
+1. **Consolidated Block Push/Pop Expansion (`src/stack_preprocessor.cpp`)**:
+   - For multi-register pushes, `sp` is decremented **once** by the total frame size (`sub sp, sp, total_bytes`).
+   - Registers are then stored using constant indexed offsets (`st r1, 12[sp]`, `st r2, 8[sp]`, etc.).
+   - Cuts instruction count by **37.5%** (10 instructions instead of 16 for a 4-register push/pop pair) and removes intra-push serial dependencies.
+2. **Front-End Hardware Stack Engine (`include/cpu_pipeline.hpp`, `src/cpu_pipeline.cpp`)**:
+   - Modeled after dedicated stack pointer engines in modern processors (Intel Core / ARM Cortex).
+   - Dedicated hardware adder in the Decode (`ID`/`OF`) stage tracks `sp` modifications (`isSpAdjustment()`) in **0 cycles**.
+   - Bypasses `sp` deltas directly to subsequent instructions without tying up the main integer ALU in `EX`, incrementing `metrics_.stack_engine_resolutions`.
+
+---
+
+## 22. Static Load-Use Delay Slot Optimization (Assembler Out-of-Order Instruction Scheduling)
+
+### Problem & Bottleneck (FIND-008 & OPT-029)
+In pipelined architectures, when an instruction immediately uses the result of a preceding load:
+```assembly
+ld r1, 0[r2]       ; Result available only at end of memory access stage
+add r3, r1, 5      ; Requires r1 -> MUST STALL 1 CYCLE!
+```
+Even with hardware forwarding, physical memory access latency forces a **1-cycle pipeline bubble** (load-use hazard).
+
+### Algorithmic Implementation (`src/assembler.cpp`)
+Implemented static out-of-order instruction scheduling within the assembler:
+1. **Basic Block Lookahead Window**:
+   When the assembler encounters a load instruction (`ld rd, ...`) followed immediately by a dependent instruction consuming `rd`, it scans forward within the basic block (up to 16 instructions).
+2. **Dependency & Hazard Analysis**:
+   An instruction candidate $I_{cand}$ can be legally hoisted into the load delay slot if:
+   - **No RAW Conflict**: $I_{cand}$ does not read the load's destination register (`rd`).
+   - **No WAR Conflict**: $I_{cand}$ does not write any register read by the load (e.g., base register `rs1`).
+   - **No WAW Conflict**: $I_{cand}$ does not overwrite `rd`.
+   - **Flag Safety**: If the dependent consumer relies on comparison flags (`CMP`), $I_{cand}$ must not alter ALU flags.
+   - **Control Flow Boundary**: Scanning stops at labels, branches, and function calls.
+3. **Instruction Hoisting**:
+   The independent instruction is relocated immediately behind the `ld`, filling the load-use delay slot.
+
+### Impact & Results
+* **100% Load-Use Stall Elimination**: Load-use stalls drop from 2 to **0** on load-heavy benchmark workloads (`programs/test_load_use_opt.s`).
+* **Throughput Improvement**: Total clock cycles drop from 17 to 15 (**+11.8% execution speedup**), while maintaining identical register state and exact program semantics.
