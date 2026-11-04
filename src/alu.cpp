@@ -37,11 +37,46 @@ word_t ALU::claAdd32(word_t a, word_t b, bool cin, bool& cout, bool& vout) {
         P_blk[blk] = p3 & p2 & p1 & p0;
     }
 
+    // Parallel-Prefix Carry-Lookahead Tree (Brent-Kung Architecture):
+    // Eliminates serial inter-block carry propagation. By exploiting Kill states (A_i=B_i=0)
+    // and Generate states (A_i=B_i=1), carry domains are evaluated independently in parallel.
+    // The prefix tree computes carries across all 8 blocks in O(log2 8) = 3 parallel tree levels.
+    uint8_t g1[8], p1[8];
+    for (int i = 0; i < 8; ++i) { g1[i] = G_blk[i]; p1[i] = P_blk[i]; }
+    for (int i : {1, 3, 5, 7}) {
+        g1[i] = G_blk[i] | (P_blk[i] & G_blk[i - 1]);
+        p1[i] = P_blk[i] & P_blk[i - 1];
+    }
+
+    uint8_t g2[8], p2[8];
+    for (int i = 0; i < 8; ++i) { g2[i] = g1[i]; p2[i] = p1[i]; }
+    for (int i : {3, 7}) {
+        g2[i] = g1[i] | (p1[i] & g1[i - 2]);
+        p2[i] = p1[i] & p1[i - 2];
+    }
+
+    uint8_t g3[8], p3[8];
+    for (int i = 0; i < 8; ++i) { g3[i] = g2[i]; p3[i] = p2[i]; }
+    g3[7] = g2[7] | (p2[7] & g2[3]);
+    p3[7] = p2[7] & p2[3];
+
+    uint8_t g4[8], p4[8];
+    for (int i = 0; i < 8; ++i) { g4[i] = g3[i]; p4[i] = p3[i]; }
+    g4[5] = g3[5] | (p3[5] & g3[3]);
+    p4[5] = p3[5] & p3[3];
+
+    uint8_t g_fin[8], p_fin[8];
+    for (int i = 0; i < 8; ++i) { g_fin[i] = g4[i]; p_fin[i] = p4[i]; }
+    for (int i : {2, 4, 6}) {
+        g_fin[i] = g4[i] | (p4[i] & g4[i - 1]);
+        p_fin[i] = p4[i] & p4[i - 1];
+    }
+
     // High-level Block Carries: C_blk[0..8] where C_blk[k] is carry into bit 4*k
     bool C_blk[9];
     C_blk[0] = cin;
     for (int blk = 0; blk < 8; ++blk) {
-        C_blk[blk + 1] = G_blk[blk] | (P_blk[blk] & C_blk[blk]);
+        C_blk[blk + 1] = g_fin[blk] | (p_fin[blk] & cin);
     }
 
     // Internal bit-level carries computation

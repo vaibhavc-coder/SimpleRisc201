@@ -102,10 +102,12 @@ The ALU contains dedicated hardware algorithms implemented in C++ to model real 
                                                           +-------------------+
 ```
 
-#### 1. Hierarchical 32-Bit CLA Adder with GPK Logic (`ALU::claAdd32`)
+#### 1. Hierarchical 32-Bit CLA Adder with Parallel-Prefix Tree & GPK Logic (`ALU::claAdd32`)
 * **Standard Implementation**: Ripple-Carry Adders (RCA) propagate carries serially from bit 0 to bit 31, incurring $64\Delta$ gate delays ($2\Delta$ per 1-bit full adder).
-* **Our Implementation**:
+* **Our Implementation & Parallel-Prefix Architecture**:
   * Implements bit-level Generate ($G_i = A_i \cdot B_i$), Propagate ($P_i = A_i \oplus B_i$), and Kill ($K_i = \overline{A_i} \cdot \overline{B_i}$) logic.
+  * **Carry-Kill Barrier Isolation**: When both bits are 0 ($K_i = 1$), the carry-out is unconditionally 0, forming an absolute carry barrier. Subsequent blocks become completely independent of earlier bits, allowing carry paths to be solved in parallel.
+  * **Brent-Kung Parallel-Prefix Carry Tree**: Rather than rippling carries serially across the eight 4-bit blocks ($C_{\text{blk}} = G_{\text{blk}} \lor (P_{\text{blk}} \land C_{\text{blk}})$), the inter-block carries are computed concurrently using a binary prefix tree in $\mathcal{O}(\log_2 8) = 3$ parallel tree stages.
   * Groups the 32 bits into eight 4-bit blocks ($k \in [0, 7]$).
   * Computes block Group Generate ($G_{blk, k}$) and Group Propagate ($P_{blk, k}$) simultaneously:
     $$G_{blk, k} = G_3 \lor (P_3 \cdot G_2) \lor (P_3 \cdot P_2 \cdot G_1) \lor (P_3 \cdot P_2 \cdot P_1 \cdot G_0)$$

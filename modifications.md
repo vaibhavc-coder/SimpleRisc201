@@ -83,12 +83,12 @@ For each 4-bit block $k \in [0, 7]$ spanning bits $[4k \dots 4k+3]$:
 * **Group Kill ($K_{blk, k}$)**:
   $$K_{blk, k} = \overline{G_{blk, k} \lor P_{blk, k}}$$
 
-#### Parallel Carry Network:
-* Inter-block carries $C_{blk}[0 \dots 8]$ are computed simultaneously at the second hierarchical level:
-  $$C_{blk}[k+1] = G_{blk, k} \lor (P_{blk, k} \cdot C_{blk}[k])$$
+#### Parallel Prefix Carry Network (Brent-Kung Architecture):
+* **Carry-Kill Barrier Isolation**: When both bits are 0 ($K_i = 1$), the carry-out is unconditionally 0, forming an absolute barrier. Subsequent blocks become independent of earlier carries, allowing carry paths to be solved concurrently.
+* Inter-block carries $C_{blk}[0 \dots 8]$ are computed simultaneously using a binary prefix tree in $\mathcal{O}(\log_2 8) = 3$ parallel tree stages rather than a serial loop.
 * Internal bit carries $C_i$ are generated in parallel within each block.
 * Sum bits: $S_i = P_i \oplus C_i$.
-* **Time Complexity**: Reduced from $\mathcal{O}(N)$ (32 delays) to $\mathcal{O}(\log N)$ ($\approx 5$ gate levels).
+* **Time Complexity**: Reduced from $\mathcal{O}(N)$ (64 gate delays) to $\mathcal{O}(\log N)$ ($\approx 5$ gate levels).
 
 #### Subtraction & Flag Computation:
 * **Subtraction ($A - B$)**: Configured as $A + (\sim B) + 1$ with $C_{in} = 1$.
