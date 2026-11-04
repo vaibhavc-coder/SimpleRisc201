@@ -1,4 +1,4 @@
-# RISC201 / SimpleRISC Processor Simulator: Comprehensive Architectural Analysis & Engineering Report
+# RISC201 / SimpleRISC Processor Simulator: Architectural Analysis & Engineering Report
 
 ---
 

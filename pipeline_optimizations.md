@@ -4,7 +4,7 @@
 **Architecture Reference:** Smruti R. Sarangi, *Basic Computer Architecture* (Chapters 8 & 9)  
 **Authors:** SimpleRisc201 Architecture Team  
 
-This document provides a comprehensive technical analysis of the **Pipeline and Datapath Bottleneck Optimizations** implemented in the SimpleRISC simulator. These enhancements remove critical hardware hazards, eliminate unnecessary pipeline bubbles, resolve structural bus conflicts, and improve execution throughput.
+This document provides a technical breakdown of the **Pipeline and Datapath Bottleneck Optimizations** implemented in the SimpleRISC simulator. These enhancements address hardware hazards, eliminate pipeline bubbles, resolve structural bus conflicts, and improve execution throughput.
 
 ---
 
@@ -173,9 +173,9 @@ Tested on loop code with backward branch repetition:
 
 | File | Changes Made |
 |---|---|
-| [`include/cpu_pipeline.hpp`](file:///C:/Users/vegur/.gemini/antigravity/scratch/SimpleRisc201/include/cpu_pipeline.hpp) | Added `ReturnAddressStack`, `L1Cache`, `StoreBuffer`, `BTBEntry`, `BranchPredictionState`, and extended `PipelineMetrics`. |
-| [`src/cpu_pipeline.cpp`](file:///C:/Users/vegur/.gemini/antigravity/scratch/SimpleRisc201/src/cpu_pipeline.cpp) | Integrated RAS push/pop in `ID`/`IF`, store-to-load forwarding in `MEM`/`WB`, L1 cache tracking in `IF`/`MEM`, and early resolution in `ID`. |
-| [`include/types.hpp`](file:///C:/Users/vegur/.gemini/antigravity/scratch/SimpleRisc201/include/types.hpp) | Fixed `writesRd()` to exclude `OP_CALL` so link register `r15` is updated properly. |
-| [`src/main.cpp`](file:///C:/Users/vegur/.gemini/antigravity/scratch/SimpleRisc201/src/main.cpp) | Added automated test suite `testDatapathOptimizations()` verifying RAS, Store-Forwarding, and L1 caches. |
-| [`programs/test_datapath_advanced.s`](file:///C:/Users/vegur/.gemini/antigravity/scratch/SimpleRisc201/programs/test_datapath_advanced.s) | Added assembly test program for advanced datapath verification. |
-| [`src/disassembler.cpp`](file:///C:/Users/vegur/.gemini/antigravity/scratch/SimpleRisc201/src/disassembler.cpp), [`src/stack_visualizer.cpp`](file:///C:/Users/vegur/.gemini/antigravity/scratch/SimpleRisc201/src/stack_visualizer.cpp) | Fixed `std::left` stream manipulator leak causing hex value formatting errors. |
+| [`include/cpu_pipeline.hpp`](include/cpu_pipeline.hpp) | Added `ReturnAddressStack`, `L1Cache`, `StoreBuffer`, `BTBEntry`, `BranchPredictionState`, and extended `PipelineMetrics`. |
+| [`src/cpu_pipeline.cpp`](src/cpu_pipeline.cpp) | Integrated RAS push/pop in `ID`/`IF`, store-to-load forwarding in `MEM`/`WB`, L1 cache tracking in `IF`/`MEM`, and early resolution in `ID`. |
+| [`include/types.hpp`](include/types.hpp) | Fixed `writesRd()` to exclude `OP_CALL` so link register `r15` is updated properly. |
+| [`src/main.cpp`](src/main.cpp) | Added automated test suite `testDatapathOptimizations()` verifying RAS, Store-Forwarding, and L1 caches. |
+| [`programs/test_datapath_advanced.s`](programs/test_datapath_advanced.s) | Added assembly test program for advanced datapath verification. |
+| [`src/disassembler.cpp`](src/disassembler.cpp), [`src/stack_visualizer.cpp`](src/stack_visualizer.cpp) | Fixed `std::left` stream manipulator leak causing hex value formatting errors. |

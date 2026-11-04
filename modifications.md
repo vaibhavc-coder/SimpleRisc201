@@ -23,7 +23,7 @@ This document records all architectural enhancements, advanced arithmetic circui
 16. [Return Address (RA / r15) Hazard Forwarding & Bypass Network](#16-return-address-ra--r15-hazard-forwarding--bypass-network)
 17. [Horizontal Microprogrammed Control Unit (64-Bit Direct Gate Drive)](#17-horizontal-microprogrammed-control-unit-64-bit-direct-gate-drive)
 18. [Full-Descending Stack Preprocessor, Memory Visualizer & Interactive CLI Debugger](#18-full-descending-stack-preprocessor-memory-visualizer--interactive-cli-debugger)
-19. [Architectural Trade-Off & Comprehensive Performance Review](#19-architectural-trade-off--comprehensive-performance-review)
+19. [Architectural Trade-Off & Performance Summary](#19-architectural-trade-off--comprehensive-performance-review)
 20. [Microprogrammed Control Unit Telemetry, Exception Trapping & Opcode Parity](#20-microprogrammed-control-unit-telemetry-exception-trapping--opcode-parity)
 21. [Front-End Hardware Stack Engine & Consolidated Block Push/Pop](#21-front-end-hardware-stack-engine--consolidated-block-pushpop)
 22. [Static Load-Use Delay Slot Optimization (Assembler Out-of-Order Instruction Scheduling)](#22-static-load-use-delay-slot-optimization-assembler-out-of-order-instruction-scheduling)
@@ -295,7 +295,7 @@ graph LR
 In subroutine calls (`call label`), the return address `PC + 4` is saved into the link register `r15` (`RA`). When returning via `ret`, the CPU must branch to the dynamic address stored in `r15`. Because `r15` is read in decode/register read and branch redirect occurs in execute, every `ret` instruction historically flushed the preceding stages, causing a **2-cycle flush in 4-stage** and a **3-cycle flush in 6-stage**.
 
 ### Hardware Architecture & Implementation
-A hardware **Return Address Stack (RAS)** was implemented in [`include/cpu_pipeline.hpp`](file:///c:/Users/jaswa/OneDrive/Documents/RISC201_Simulator/SimpleRisc201/include/cpu_pipeline.hpp):
+A hardware **Return Address Stack (RAS)** was implemented in [`include/cpu_pipeline.hpp`](include/cpu_pipeline.hpp):
 * **Structure**: 16-entry circular LIFO array managed by `top_` pointer and occupancy `count_`.
 * **Push on `CALL`**: When `OP_CALL` is decoded in `ID`/`OF`, the expected return address (`PC + 4`) is pushed onto the stack.
 * **Speculative Pop on `RET`**: During fetch pre-decode (bits `[31:27] == 0b10100`), the top return address is popped and `PC` is redirected speculatively in the very next cycle.
@@ -316,7 +316,7 @@ RET Fetched  ===> Pop Top Target & Speculatively Redirect PC ===> 0 BUBBLE PENAL
 Textbook simulators often use a flat single-port memory array. In silicon, concurrent memory accesses by `IF` (instruction fetch) and `MEM` (data read/write) create a **Von Neumann structural hazard**, forcing the processor to stall fetch during data operations.
 
 ### Hardware Architecture & Implementation
-Implemented dedicated L1 caches in [`include/cpu_pipeline.hpp`](file:///c:/Users/jaswa/OneDrive/Documents/RISC201_Simulator/SimpleRisc201/include/cpu_pipeline.hpp):
+Implemented dedicated L1 caches in [`include/cpu_pipeline.hpp`](include/cpu_pipeline.hpp):
 * **Geometry**: 16 Sets, 2-Way Set-Associative per cache (I-Cache & D-Cache).
 * **Line Size**: 16 bytes (4 32-bit words per line).
 * **Replacement Policy**: True Least-Recently-Used (LRU) tracking using 32-bit hardware timestamp counters.
@@ -407,7 +407,7 @@ Alongside the 45-bit Vertical Micro-CU (Sarangi Chapter 9), an unencoded 64-bit 
 
 ---
 
-## 19. Architectural Trade-Off & Comprehensive Performance Review
+## 19. Architectural Trade-Off & Performance Summary
 
 | Optimization / Innovation | Subsystem | Hardware Area Trade-Off | Timing / Cycle Benefit | Evaluation & Recommendation |
 |:---|:---|:---|:---|:---|
