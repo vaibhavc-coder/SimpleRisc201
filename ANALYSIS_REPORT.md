@@ -190,12 +190,90 @@ Inter-stage pipeline registers are implemented as structured objects storing the
 * **6-Stage Latches**: `Latch_IF1_IF2`, `Latch_IF2_OF`, `Latch_OF_EX`, `Latch_EX_MA`, `Latch_MA_RW`.
 Each latch contains a `valid` bit and a `bubble` flag. When a hazard requires a pipeline flush or stall, latches inject a bubble rather than executing stale or invalid instruction words.
 
-#### 2. Forwarding (Bypass) Network
-The forwarding unit checks for Read-After-Write (RAW) data dependencies on every cycle:
-* **`EX/MA` $\rightarrow$ `EX` Forwarding**: Forwards the ALU result of the immediately preceding instruction directly to operand input $A$ or $B$ of the execution stage.
-* **`MA/RW` $\rightarrow$ `EX` Forwarding**: Forwards memory load data or older ALU results directly from the writeback stage to the execution inputs.
-* **Internal Register File Bypass (Write-Before-Read)**: If an instruction in decode reads a register that is currently being written in writeback, internal forwarding returns the new value within the same clock cycle.
-* **Return Address (`r15`) Forwarding**: Added `Instruction::readsRA()`. The link register written by `call` is forwarded directly to `ret` instructions or subsequent register operations.
+#### 2. Comprehensive Forwarding (Bypass) Network Architecture
+
+In a pipelined processor, Read-After-Write (RAW) data dependencies occur when an instruction requires the result of an earlier instruction that has not yet committed to the register file. Without forwarding, the processor would need to stall 2 full clock cycles for every dependent computation.
+
+The SimpleRISC simulator implements a complete, hardware-accurate bypass network that forwards operands directly across pipeline stages within the same clock cycle:
+
+```
+                          DETAILED EX-STAGE FORWARDING MULTIPLEXER
+                          
+    Stage Latch (OF/EX)           EX/MA Latch (Prior Inst)     MA/RW Latch (2nd Prior Inst)
+   [ Register File Read ]        [ ALU Result / Call PC+4 ]   [ D-Cache Data / ALU Result ]
+             |                               |                            |
+             |                               |                            |
+             +------------+                  |                            |
+                          |                  |                            |
+                          v                  v                            v
+                      +-------------------------------------------------------+
+                      |         3-to-1 OPERAND FORWARDING MUX (ForwardA)      |
+                      +-------------------------------------------------------+
+                                                 |
+                                                 v  Selected Operand A (val_a)
+                                           +------------+
+                                           |  ALU CORE  | ===> alu_result
+                                           +------------+
+                                                 ^  Selected Operand B (val_b)
+                                                 |
+                      +-------------------------------------------------------+
+                      |         4-to-1 OPERAND FORWARDING MUX (ForwardB)      |
+                      +-------------------------------------------------------+
+                          ^                  ^                            ^
+                          |                  |                            |
+             +------------+                  |                            |
+             |                               |                            |
+   [ Register File Read / Imm ]  [ ALU Result / Call PC+4 ]   [ D-Cache Data / ALU Result ]
+```
+
+##### Forwarding Paths & Multiplexer Control Logic:
+
+1. **Path 1: `EX/MA` $\rightarrow$ `EX` ALU Forwarding (Priority 1 — Most Recent Instruction):**
+   * **Source**: The ALU result or link address (`PC + 4` for `CALL`) of the instruction currently in the Memory Access stage (`Latch_EX_MA`).
+   * **Condition for Operand A (`rs1`)**:
+     $$\text{ForwardA} = \text{EX/MA} \iff (\text{EX/MA.valid}) \land (\text{EX/MA.writesRd}) \land (\text{EX/MA.rd} == \text{OF/EX.rs1}) \land (\neg\text{EX/MA.isLoad})$$
+   * **Condition for Operand B (`rs2`)**:
+     $$\text{ForwardB} = \text{EX/MA} \iff (\text{EX/MA.valid}) \land (\text{EX/MA.writesRd}) \land (\text{EX/MA.rd} == \text{OF/EX.rs2}) \land (\neg\text{OF/EX.I}) \land (\neg\text{EX/MA.isLoad})$$
+   * **Latency**: **0 stall cycles**. The computed ALU result from cycle $t-1$ is directly routed into the ALU input at cycle $t$.
+
+2. **Path 2: `MA/RW` $\rightarrow$ `EX` Writeback Forwarding (Priority 2 — Older Instruction):**
+   * **Source**: The writeback data from the instruction in stage `Latch_MA_RW` (can be either data loaded from D-Cache or an older ALU result).
+   * **Condition**: Triggered only if `EX/MA` does **not** match the source register (ensuring the most recent value takes precedence):
+     $$\text{ForwardA} = \text{MA/RW} \iff (\text{MA/RW.valid}) \land (\text{MA/RW.writesRd}) \land (\text{MA/RW.rd} == \text{OF/EX.rs1}) \land (\text{Priority 1 not active})$$
+   * **Latency**: **0 stall cycles**.
+
+3. **Path 3: Store Data Forwarding (`rd` register in `ST` instructions):**
+   * In SimpleRISC, `st rd, imm[rs1]` reads `rd` as the data source to be stored into memory.
+   * If an instruction modifying `rd` immediately precedes `st`, the store data is forwarded directly into `store_data` without waiting for register writeback:
+     $$\text{ForwardStore} = \text{EX/MA.alu\_result} \quad \text{or} \quad \text{MA/RW.write\_data}$$
+
+4. **Path 4: Subroutine Link Register (`r15` / `RA`) Bypass:**
+   * When `CALL` executes, the return address (`PC + 4`) is generated for link register `r15`.
+   * If a subsequent instruction immediately reads `r15` (or a `RET` instruction restores execution before register commit), `r15` is forwarded directly from `EX/MA.pc + 4` or `MA/RW.write_data`.
+
+5. **Path 5: Internal Register File Bypass (Write-Before-Read in Decode):**
+   * When an instruction in Decode/OF reads a register at cycle $t$ while an earlier instruction is committing that same register in Writeback/RW at cycle $t$:
+   * A silicon register file could produce stale data if read happens before write. The simulator implements an internal comparator in the decode stage:
+     $$\text{if } (\text{WB.writesRd} \land \text{WB.rd} == \text{Decode.rs1}) \implies \text{val\_rs1} = \text{WB.write\_data}$$
+   * Resolves register conflicts in the exact same clock edge.
+
+6. **Path 6: Hardware Store-to-Load Memory Forwarding (Store Buffer Bypass):**
+   * Solves memory RAW hazards when a `ld` reads the exact memory address written by a prior uncommitted `st`:
+     $$\text{st } r1, 0[r2] \quad \rightarrow \quad \text{ld } r3, 0[r2]$$
+   * Rather than waiting for the store to traverse the D-cache write queue, the 4-entry hardware **Store Buffer** associatively matches the load target address and forwards the data directly in **0 memory cycles**.
+
+##### Summary Table of Forwarding Sources & Actions:
+
+| Hazard Dependency Type | Producer Stage | Consumer Stage | Forwarding Path | Hardware Source | Penalty Cycles |
+|:---|:---:|:---:|:---|:---|:---:|
+| **ALU $\rightarrow$ ALU** (consecutive) | `EX` | `EX` | `EX/MA` $\rightarrow$ `EX` | `ex_ma_.alu_result` | **0 cycles** |
+| **ALU $\rightarrow$ ALU** (separated by 1 inst) | `MA` / `RW` | `EX` | `MA/RW` $\rightarrow$ `EX` | `ma_rw_.write_data` | **0 cycles** |
+| **ALU $\rightarrow$ Store Data** (`st rd`) | `EX` / `MA` | `EX` / `MA` | `EX/MA` / `MA/RW` $\rightarrow$ Store | `ex_ma_.alu_result` / `write_data` | **0 cycles** |
+| **Load $\rightarrow$ Store Data** (`st` consumes loaded value) | `MA` | `MA` | `MA/RW` $\rightarrow$ Store Data | `readMemory(alu_result)` | **0 cycles** |
+| **`CALL` Link Address $\rightarrow$ `RET` / Use** | `EX` / `MA` | `Decode` / `EX` | RA Forwarding Wire | `pc + 4` | **0 cycles** |
+| **Register Writeback $\rightarrow$ Decode Read** | `RW` | `Decode`/`OF` | Write-Before-Read | `next_mem_wb.write_data` | **0 cycles** |
+| **Store $\rightarrow$ Load Same Address** | Store Buffer | `MA` / `MEM` | Associative Store Match | `StoreBuffer[hit].data` | **0 cycles** |
+| **Load $\rightarrow$ Immediate ALU** (Load-Use) | `MA` | `EX` | Load-Use Interlock Stall | 1-cycle stall bubble, then `MA/RW` $\rightarrow$ `EX` | **1 cycle** (0 with static scheduler) |
 
 #### 3. Load-Use Hazard Detection & Interlock
 When an instruction in decode reads a register written by an active load in the execution stage:
