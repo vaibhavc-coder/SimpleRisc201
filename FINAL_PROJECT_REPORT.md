@@ -55,7 +55,7 @@ The instruction decoder classifies 32-bit machine words into four distinct forma
 * `0b01` (Upper): High 16-bit placement (`imm16 << 16`), used for setting upper register halves without extra shifts.
 * `0b10` (High): Zero-extended unsigned 16-bit immediate.
 
-### 2.3 Opcode Repertoire (24 Opcodes)
+### 2.3 Opcode Collection (24 Opcodes)
 Defined in `types.hpp`:
 * **Integer Arithmetic**: `ADD` (`0b00000`), `SUB` (`0b00001`), `MUL` (`0b00010`), `DIV` (`0b00011`), `MOD` (`0b00100`), `CMP` (`0b00101`).
 * **Bitwise Logic**: `AND` (`0b00110`), `OR` (`0b00111`), `NOT` (`0b01000`), `MOV` (`0b01001`).
@@ -88,18 +88,18 @@ The ALU contains dedicated hardware algorithms implemented in C++ to model real 
                                   +------------------------------------+
                                   |           32-BIT ALU CORE          |
                                   +------------------------------------+
-                                    /         |             |        \
-                                   /          |             |         \
-          +-----------------------+   +---------------+  +-------+   +-------------------+
-          | GPK CLA Adder/Sub     |   | Radix-4 Booth |  | CLZ   |   | Newton-Raphson    |
-          | O(log N) 4-bit blocks |   | Multiplier    |  | Logic |   | Divider & Modulo  |
-          +-----------------------+   +---------------+  +-------+   +-------------------+
-                                                                               |
-                                                                     +-------------------+
-                                                                     | IEEE-754 FPU      |
-                                                                     |       FMUL        |
-                                                                     | FDIV (Newton-Raph)|
-                                                                     +-------------------+
+                                    /         |                    |
+                                   /          |                    |
+          +-----------------------+   +---------------+   +-------------------+
+          | GPK CLA Adder/Sub     |   | Radix-4 Booth |   | Newton-Raphson    |
+          | O(log N) 4-bit blocks |   | Multiplier    |   | Divider & Modulo  |
+          +-----------------------+   +---------------+   +-------------------+
+                                                                    |
+                                                          +-------------------+
+                                                          | IEEE-754 FPU      |
+                                                          |       FMUL        |
+                                                          | FDIV (Newton-Raph)|
+                                                          +-------------------+
 ```
 
 #### 1. Hierarchical 32-Bit CLA Adder with GPK Logic (`ALU::claAdd32`)
@@ -159,30 +159,6 @@ The ALU contains dedicated hardware algorithms implemented in C++ to model real 
 ---
 
 ### 3.2 Pipelined Datapath & Hazard Subsystem (`cpu_pipeline.hpp`, `cpu_pipeline.cpp`)
-
-```
-========================================================================================
-                          4-STAGE PIPELINE ARCHITECTURE
-========================================================================================
- [ IF ] ----------> [ ID/RR ] ----------> [ EX ] ----------> [ MEM/WB ]
- Fetch             Decode & Reg Read     ALU & Branch        Data Cache & Reg Commit
- (pc_)             (Latch_IF_ID)         (Latch_ID_EX)       (Latch_EX_MEM / Latch_MEM_WB)
-                       ^                      |                    |
-                       |                      v                    v
-                       +-------------- EX/MEM Forwarding ----------+
-                       +-------------- MEM/WB Forwarding ----------+
-
-========================================================================================
-                     CANONICAL 6-STAGE SUPER-PIPELINE ARCHITECTURE
-========================================================================================
- [ IF1 ] ----> [ IF2 ] ----> [ OF ] ----> [ EX ] ----> [ MA ] ----> [ RW ]
- Addr Gen      I-Cache Fetch Decode & Reg ALU & Branch Data Cache   Reg Commit
- (pc_)         (Latch_IF1_2) (Latch_IF2_OF)(Latch_OF_EX)(Latch_EX_MA)(Latch_MA_RW)
-                                 ^             |           |          |
-                                 |             v           v          v
-                                 +--- EX/MA Forwarding ----+          |
-                                 +--- MA/RW Forwarding ---------------+
-```
 
 #### 1. Inter-Stage Latch Data Structures
 Inter-stage pipeline registers are implemented as structured objects storing the instruction, operand values, branch prediction flags, and bubble indicators:
@@ -464,11 +440,61 @@ The simulator was verified across self-tests and targeted assembly benchmark pro
 [NEWTON-RAPHSON] 355 / 113 = 3, 355 % 113 = 16 (Expected: Q=3, R=16)
 [ALU CMP] cmp 100, 100 -> flags.E=1 flags.GT=0 (Expected: E=1, GT=0)
 [ALU CMP] cmp 200, 50  -> flags.E=0 flags.GT=1 (Expected: E=0, GT=1)
-[I2D / D2I] Value: -12345 -> Double bit pattern -> Recovered: -12345 (Expected: -12345)
+[I2D / D2I] Value: -12345 (0xFFFFCFC7) -> 64-Bit Double: 0xC0C81C8000000000 -> Recovered: -12345 (Expected: -12345)
 [IEEE-754 FMUL] 3.5 * 2.0 = 7.0 (Expected: 7.0)
 [IEEE-754 FDIV] 3.5 / 2.0 = 1.75 (Expected: 1.75)
 ```
 *Result*: 100% of arithmetic tests passed with bit-accurate outputs.
+
+#### Detailed Walkthrough of Type Conversion Hardware (`I2D` & `D2I`):
+To demonstrate how 32-bit two's complement integer data is converted into IEEE-754 64-bit double precision and back without floating-point emulation libraries, consider the conversion of $A = -12345$:
+
+```
+1. INTEGER-TO-DOUBLE CONVERSION (I2D):
+   Input: A = -12345 (Two's complement: 0xFFFFCFC7)
+   
+   a. Sign Extraction:
+      A < 0  ===> Sign Bit S = 1
+      Magnitude |A| = 12345 = 0x00003039 = 0b0000_0000_0000_0000_0011_0000_0011_1001
+
+   b. Leading Zero Priority Encoding (CLZ):
+      5-level hardware priority encoder finds 18 leading zeros:
+      lz = 18  ===> MSB Position = 31 - 18 = 13  (Highest bit set is at position 13: 2^13 = 8192)
+
+   c. Biased Exponent Calculation:
+      IEEE-754 double-precision exponent bias = 1023
+      Exponent E = Bias + msb_pos = 1023 + 13 = 1036 = 0x40C (11 bits: 0b100_0000_1100)
+
+   d. Significand (Mantissa) Alignment:
+      Normalized binary scientific notation:
+      12345 = 1.1000000111001_2 * 2^13
+      Implicit leading '1' is masked out; remaining 13 bits (0b1000000111001 = 0x1039)
+      are aligned to the 52-bit fractional field by left-shifting:
+      frac = 0x1039 << (52 - 13) = 0x81C8000000000
+
+   e. Packed 64-Bit IEEE-754 Double Bit Pattern:
+      [S: 1 bit] [E: 11 bits] [Fraction: 52 bits]
+          1         10000001100     1000000111001000000000000000000000000000000000000000
+      = 0xC0C8_1C80_0000_0000
+      (In 32-bit register architectures, upper word = 0xC0C81C80, lower word = 0x00000000)
+
+2. DOUBLE-TO-INTEGER CONVERSION (D2I):
+   Input: Double Bits = 0xC0C8_1C80_0000_0000
+
+   a. Field Extraction:
+      Sign S = (0xC0C8... >> 63) = 1 (Negative)
+      Biased Exp E = (0xC0C8... >> 52) & 0x7FF = 1036
+      Unbiased Exponent = 1036 - 1023 = 13
+
+   b. Mantissa Restoration & Shift:
+      Restore implicit leading '1': mantissa = (1 << 52) | frac = 0x181C8000000000
+      Shift right by (52 - 13) = 39 bits:
+      abs_int = mantissa >> 39 = 12345 = 0x00003039
+
+   c. Two's Complement Restoration:
+      Since S = 1: Output = -abs_int = -12345 (0xFFFFCFC7)
+      Exact round-trip identity: D2I(I2D(-12345)) == -12345 (Zero Precision Loss)
+```
 
 ---
 

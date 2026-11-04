@@ -464,11 +464,61 @@ The simulator was verified across self-tests and targeted assembly benchmark pro
 [NEWTON-RAPHSON] 355 / 113 = 3, 355 % 113 = 16 (Expected: Q=3, R=16)
 [ALU CMP] cmp 100, 100 -> flags.E=1 flags.GT=0 (Expected: E=1, GT=0)
 [ALU CMP] cmp 200, 50  -> flags.E=0 flags.GT=1 (Expected: E=0, GT=1)
-[I2D / D2I] Value: -12345 -> Double bit pattern -> Recovered: -12345 (Expected: -12345)
+[I2D / D2I] Value: -12345 (0xFFFFCFC7) -> 64-Bit Double: 0xC0C81C8000000000 -> Recovered: -12345 (Expected: -12345)
 [IEEE-754 FMUL] 3.5 * 2.0 = 7.0 (Expected: 7.0)
 [IEEE-754 FDIV] 3.5 / 2.0 = 1.75 (Expected: 1.75)
 ```
 *Result*: 100% of arithmetic tests passed with bit-accurate outputs.
+
+#### Detailed Walkthrough of Type Conversion Hardware (`I2D` & `D2I`):
+To demonstrate how 32-bit two's complement integer data is converted into IEEE-754 64-bit double precision and back without floating-point emulation libraries, consider the conversion of $A = -12345$:
+
+```
+1. INTEGER-TO-DOUBLE CONVERSION (I2D):
+   Input: A = -12345 (Two's complement: 0xFFFFCFC7)
+   
+   a. Sign Extraction:
+      A < 0  ===> Sign Bit S = 1
+      Magnitude |A| = 12345 = 0x00003039 = 0b0000_0000_0000_0000_0011_0000_0011_1001
+
+   b. Leading Zero Priority Encoding (CLZ):
+      5-level hardware priority encoder finds 18 leading zeros:
+      lz = 18  ===> MSB Position = 31 - 18 = 13  (Highest bit set is at position 13: 2^13 = 8192)
+
+   c. Biased Exponent Calculation:
+      IEEE-754 double-precision exponent bias = 1023
+      Exponent E = Bias + msb_pos = 1023 + 13 = 1036 = 0x40C (11 bits: 0b100_0000_1100)
+
+   d. Significand (Mantissa) Alignment:
+      Normalized binary scientific notation:
+      12345 = 1.1000000111001_2 * 2^13
+      Implicit leading '1' is masked out; remaining 13 bits (0b1000000111001 = 0x1039)
+      are aligned to the 52-bit fractional field by left-shifting:
+      frac = 0x1039 << (52 - 13) = 0x81C8000000000
+
+   e. Packed 64-Bit IEEE-754 Double Bit Pattern:
+      [S: 1 bit] [E: 11 bits] [Fraction: 52 bits]
+          1         10000001100     1000000111001000000000000000000000000000000000000000
+      = 0xC0C8_1C80_0000_0000
+      (In 32-bit register architectures, upper word = 0xC0C81C80, lower word = 0x00000000)
+
+2. DOUBLE-TO-INTEGER CONVERSION (D2I):
+   Input: Double Bits = 0xC0C8_1C80_0000_0000
+
+   a. Field Extraction:
+      Sign S = (0xC0C8... >> 63) = 1 (Negative)
+      Biased Exp E = (0xC0C8... >> 52) & 0x7FF = 1036
+      Unbiased Exponent = 1036 - 1023 = 13
+
+   b. Mantissa Restoration & Shift:
+      Restore implicit leading '1': mantissa = (1 << 52) | frac = 0x181C8000000000
+      Shift right by (52 - 13) = 39 bits:
+      abs_int = mantissa >> 39 = 12345 = 0x00003039
+
+   c. Two's Complement Restoration:
+      Since S = 1: Output = -abs_int = -12345 (0xFFFFCFC7)
+      Exact round-trip identity: D2I(I2D(-12345)) == -12345 (Zero Precision Loss)
+```
 
 ---
 
