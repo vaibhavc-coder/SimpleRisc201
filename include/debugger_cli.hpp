@@ -2,6 +2,7 @@
 #define SIMPLERISC_DEBUGGER_CLI_HPP
 
 #include "cpu_pipeline.hpp"
+#include "vertical_control_unit.hpp"
 #include "horizontal_control_unit.hpp"
 #include "disassembler.hpp"
 #include "stack_visualizer.hpp"
@@ -30,6 +31,7 @@ private:
     void printCurrentState(std::ostream& out);
 
     CPUPipeline& pipeline_;
+    VerticalControlUnit vert_cu_;
     HorizontalControlUnit horiz_cu_;
     ExceptionFramework exceptions_;
     std::set<addr_t> breakpoints_;

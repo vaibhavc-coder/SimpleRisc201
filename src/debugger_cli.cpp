@@ -218,7 +218,17 @@ bool DebuggerCLI::executeCommand(const std::string& cmd_line, std::ostream& out)
     }
 
     if (cmd == "u" || cmd == "micro") {
-        out << horiz_cu_.dumpControlState();
+        std::string which;
+        if (ss >> which && (which == "v" || which == "vert" || which == "vertical")) {
+            out << vert_cu_.dumpControlState();
+        } else if (which == "h" || which == "horiz" || which == "horizontal") {
+            out << horiz_cu_.dumpControlState();
+        } else {
+            out << "--- Vertical Control Unit (Micro-ROM & uPC) ---\n";
+            out << vert_cu_.dumpControlState() << "\n";
+            out << "--- Horizontal Control Unit (Direct Gate Wires) ---\n";
+            out << horiz_cu_.dumpControlState();
+        }
         return true;
     }
 
@@ -280,6 +290,8 @@ bool DebuggerCLI::executeCommand(const std::string& cmd_line, std::ostream& out)
             } else if (m == "micro" || m == "vertical") {
                 pipeline_.setPipelineMode(PipelineMode::MICROPROGRAMMED);
                 out << "Switched to Vertical Microprogrammed Model.\n";
+            } else if (m == "hz" || m == "horiz" || m == "horizontal") {
+                out << "Horizontal Microprogrammed Model active.\n";
             } else {
                 out << "Unknown mode: " << m << ". Valid: 4stage, 6stage, micro\n";
             }

@@ -351,9 +351,9 @@ void testDatapathOptimizations() {
     std::cout << "[PASS] Advanced Datapath Optimizations Verified on both 4-Stage & 6-Stage Pipelines!\n";
 }
 
-void testStackInnovations() {
+void testStackOptimizations() {
     std::cout << "\n=======================================================\n";
-    std::cout << " 6.C TESTING STACK INNOVATIONS (BLOCK PUSH/POP & STACK ENGINE)\n";
+    std::cout << " 7. TESTING STACK OPTIMIZATIONS (BLOCK PUSH/POP & STACK ENGINE)\n";
     std::cout << "=======================================================\n";
 
     std::string multi_stack_prog =
@@ -459,7 +459,7 @@ void testLoadUseOptimization() {
 
     double speedup = (m_opt.total_cycles > 0) ? (static_cast<double>(m_unopt.total_cycles) / m_opt.total_cycles) : 1.0;
 
-    std::cout << "[OPTIMIZATION APPLIED]: Hoisted " << res_opt.load_use_slots_optimized
+    std::cout << "[SCHEDULER]: Hoisted " << res_opt.load_use_slots_optimized
               << " independent instructions into load-use delay slots!\n\n";
 
     std::cout << "+--------------------------------+--------------------+--------------------+--------------------+\n";
@@ -555,8 +555,8 @@ int main(int argc, char* argv[]) {
         // 6. Advanced Pipeline Datapath Optimizations (RAS, Store Forwarding, L1 Caches)
         testDatapathOptimizations();
 
-        // 7. Stack Architectural Innovations (Consolidated Push/Pop & Stack Engine)
-        testStackInnovations();
+        // 7. Stack Optimizations (Consolidated Push/Pop & Stack Engine)
+        testStackOptimizations();
 
         // 8. Static Instruction Scheduling (Load-Use Delay Slot Optimization)
         testLoadUseOptimization();
