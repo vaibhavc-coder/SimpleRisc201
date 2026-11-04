@@ -103,7 +103,7 @@ The ALU contains dedicated hardware algorithms implemented in C++ to model real 
 ```
 
 #### 1. Hierarchical 32-Bit CLA Adder with GPK Logic (`ALU::claAdd32`)
-* **Standard Implementation**: Ripple-Carry Adders (RCA) propagate carries serially from bit 0 to bit 31, incurring $32\Delta$ gate delays.
+* **Standard Implementation**: Ripple-Carry Adders (RCA) propagate carries serially from bit 0 to bit 31, incurring $64\Delta$ gate delays ($2\Delta$ per 1-bit full adder).
 * **Our Implementation**:
   * Implements bit-level Generate ($G_i = A_i \cdot B_i$), Propagate ($P_i = A_i \oplus B_i$), and Kill ($K_i = \overline{A_i} \cdot \overline{B_i}$) logic.
   * Groups the 32 bits into eight 4-bit blocks ($k \in [0, 7]$).

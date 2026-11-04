@@ -66,7 +66,7 @@ $$\text{Product} = \sum_{i=0}^{15} \left( -2 B_{2i+1} + B_{2i} + B_{2i-1} \right
 ## 2. Hierarchical 32-Bit CLA Adder with Generate, Propagate, and Kill (GPK) Logic
 
 ### Background & Motivation
-A 32-bit Ripple Carry Adder (RCA) incurs a worst-case latency of $32 \Delta$ gate delays due to sequential carry propagation from bit 0 to bit 31.
+A 32-bit Ripple Carry Adder (RCA) incurs a worst-case latency of $64\Delta$ gate delays ($2\Delta$ per 1-bit full adder) due to sequential carry propagation from bit 0 to bit 31.
 
 ### Hardware Algorithm & Theory
 The Carry-Lookahead Adder (CLA) computes carry signals in parallel across all bit positions using three mutually exclusive states:
@@ -412,7 +412,7 @@ Alongside the 45-bit Vertical Micro-CU (Sarangi Chapter 9), an unencoded 64-bit 
 | Optimization / Innovation | Subsystem | Hardware Area Trade-Off | Timing / Cycle Benefit | Evaluation & Recommendation |
 |:---|:---|:---|:---|:---|
 | **Radix-4 Booth Multiplier** | ALU Arithmetic | Adds 3-bit window recoder & multiplexers ($\approx 120$ gates) | Cuts multiplication cycles by **50%** (16 vs 32 iterations) | **Industry Standard**: Essential for RISC DSP & compute. |
-| **Hierarchical GPK CLA Adder** | ALU Arithmetic | 4-bit block lookahead carry logic ($\approx 180$ gates) | Decreases latency from $\mathcal{O}(N)$ to $\mathcal{O}(\log N)$ ($32\Delta \rightarrow 5\Delta$) | **Highly Optimal**: Zero cycle penalties, critical for high frequency. |
+| **Hierarchical GPK CLA Adder** | ALU Arithmetic | 4-bit block lookahead carry logic ($\approx 180$ gates) | Decreases latency from $\mathcal{O}(N)$ to $\mathcal{O}(\log N)$ ($64\Delta \rightarrow 5\Delta$) | **Highly Optimal**: Zero cycle penalties, critical for high frequency. |
 | **Newton-Raphson Fused Division** | ALU Arithmetic | Double MAC / iterative multiplier block | Quadratic convergence in 5 iterations vs 32-cycle shift-subtract | **Optimal**: High-precision reciprocal without restoring divider arrays. |
 | **`UNARY_REG` Instruction Format** | ISA Architecture | 1 extra decode comparator in silicon instruction decoder | Eliminates false immediate processing and simplifies 2-operand conversion | **Zero Overhead**: Clean ISA extension. |
 | **Canonical 6-Stage Super-Pipeline** | Datapath Pipeline | Adds 5 inter-stage register banks (`IF1/IF2`, `IF2/OF`, etc.) | Separates `MA` from `RW`, shortening critical path & enabling higher $f_{\text{max}}$ | **Optimal**: Standard textbook pipeline model (CPI 1.75). |
